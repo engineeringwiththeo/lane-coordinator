@@ -21,5 +21,16 @@
     "epic_label_prefix": "epic:",
     "issue_limit": 2000,
     "pr_limit": 1000
+  },
+  "tracker": {
+    "project": null,
+    "repo": null,
+    "session_label": "{project}-{session}",
+    "coordinator_session": "00",
+    "milestone_mode": "github",
+    "close_on": "done",
+    "stale_hours": 24,
+    "sessions": 12,
+    "status_prefix": "status:"
   }
 }

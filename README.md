@@ -2,6 +2,7 @@
 
 A Claude Code plugin for running a repository as **one coordinator plus parallel worker lanes**, with one ticket per lane.
 
+- **Ticket tracking.** Milestone → epic → story → task as GitHub issues (stories and tasks are linked as sub-issues). Each ticket has one `status:*` label: todo, in-progress, testing, blocked, merging, merged, deployed, done or cancelled. Sessions claim tickets with a `<project>-NN` tag; claims are race-safe and a session holds one ticket at a time. Only the coordinator merges and closes, and a session cleans up its worktree after its ticket merges.
 - **DAG scheduler.** `work_queue.py` builds the dependency graph of your backlog (GitHub issues with `Depends on: #N` lines, or a markdown backlog), marks what's done from merged PRs, and gives each lane the ready item that unblocks the most work. Idle lanes borrow work, and the report flags blockers, cycles and merged-but-open issues.
 - **Model routing.** Each ticket gets a model from a per-project table, keyed on `size:kind:stack` (for example `M:feature:db`). Risky stacks (auth, migrations, money) have a model floor.
 - **Gated merges.** A CI-watcher agent reports `#N ready (head <sha>)`. The coordinator reviews that head and merges it itself, so sub-agents never merge.
@@ -16,11 +17,11 @@ A Claude Code plugin for running a repository as **one coordinator plus parallel
 /plugin install lane-coordinator@engineeringwiththeo
 ```
 
-Then, in any repo, ask Claude to "set up lanes here". The setup creates per-project state in `~/.claude/projects/<repo-slug>/metrics/` (outside your repo):
+Then, in any repo, ask Claude to "set up lanes here". It runs `tracker.py setup` to create the labels. The setup creates per-project state in `~/.claude/projects/<repo-slug>/metrics/` (outside your repo):
 
 | File | Purpose |
 |---|---|
-| `config.json` | integration branch, work-queue source and labels, risk stacks |
+| `config.json` | integration branch, work-queue source, tracker settings, risk stacks |
 | `routing.json` | live model table (roles, stack floors, size defaults, overrides) |
 | `ledger.jsonl` | session and ticket rows |
 | `sprints/YYYY-Www.md` | weekly routing reports |
@@ -31,6 +32,7 @@ All scripts are in `skills/lane-coordinator/scripts/` and use only the Python 3 
 
 | Script | Use |
 |---|---|
+| `tracker.py <setup\|epic\|story\|task\|claim\|next\|status\|release\|mine\|board\|deployed\|cleanup>` | Create and move tickets, claim work, see the board. See [references/tracker.md](skills/lane-coordinator/references/tracker.md). |
 | `work_queue.py [--lanes 01,02] [--models] [--json out]` | Next item per lane, ranked ready queues, blockers and cycles. See [references/queue.md](skills/lane-coordinator/references/queue.md). |
 | `init.sh [repo]` | Set up state for a repo. Never overwrites. |
 | `route.py <size:kind:stack> [--issue N]` | Print the model for a ticket. `--role helper` prints a role's model. |

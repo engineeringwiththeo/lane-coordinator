@@ -78,18 +78,31 @@ def model_hint(node, issue, routing):
     return f"{t} → {model}" + ("" if stack else " (check stack floor)")
 
 
-def main():
-    repo = arg("--repo")
+def queue_cfg(cfg, root):
+    """dag config: label names from config.queue, plus the status prefix and session-label pattern from
+    config.tracker so claimed and status-labelled tickets count as in progress / done / blocked."""
+    labels_cfg = {k: v for k, v in (cfg.get("queue") or {}).items() if k in dag.DEFAULTS}
+    try:
+        import tracker
+        t = tracker.tracker_cfg(cfg, root)
+        labels_cfg.setdefault("status_prefix", t["status_prefix"])
+        labels_cfg.setdefault("session_label_re", tracker.session_re(t).pattern)
+    except Exception:  # tracker config invalid: plan without it
+        pass
+    return labels_cfg
+
+
+def compute(repo=None, lanes=None, data_path=None, save_path=None):
     root = repo_root(repo)
     sd = state_dir(repo)
     cfg = load_json(os.path.join(sd, "config.json"), {}) or {}
     qc = {**DEFAULT_QUEUE, **(cfg.get("queue") or {})}
-    labels_cfg = {k: v for k, v in (cfg.get("queue") or {}).items() if k in dag.DEFAULTS}
+    labels_cfg = queue_cfg(cfg, root)
     base = cfg.get("integration_branch", "main")
 
-    data = load_json(arg("--data")) if arg("--data") else fetch(root, base, qc)
-    if arg("--save-data"):
-        with open(arg("--save-data"), "w") as fh:
+    data = load_json(data_path) if data_path else fetch(root, base, qc)
+    if save_path:
+        with open(save_path, "w") as fh:
             json.dump(data, fh)
 
     if qc["source"] == "backlog":
@@ -100,9 +113,16 @@ def main():
     else:
         stories, problems = dag.stories_from_issues(data["issues"], labels_cfg), []
 
-    lanes = [l.strip() for l in (arg("--lanes") or "").split(",") if l.strip()] or None
     r = dag.build_queue(stories, data["issues"], data["prs"], read_adrs(root, qc["adr_dir"]), lanes, labels_cfg)
     r["problems"][:0] = problems
+    return r, data
+
+
+def main():
+    repo = arg("--repo")
+    sd = state_dir(repo)
+    lanes = [l.strip() for l in (arg("--lanes") or "").split(",") if l.strip()] or None
+    r, data = compute(repo, lanes, arg("--data"), arg("--save-data"))
 
     report = dag.render_report(r)
     if "--models" in sys.argv:

@@ -25,7 +25,13 @@ DEFAULTS = {
     "story_label": "type:story",
     "epic_label_prefix": "epic:",
     "priority_label": r"^priority:p(\d)$",
+    "task_label": "type:task",
+    "status_prefix": "status:",
+    "session_label_re": None,  # e.g. ^myhoa2-(\d+)$ : set by work_queue.py from the tracker config
 }
+
+DONE_STATUSES = {"merged", "deployed", "done", "cancelled"}
+ACTIVE_STATUSES = {"in-progress", "testing", "merging"}
 
 
 def _natural(s):
@@ -88,7 +94,14 @@ def parse_dep(text):
     m = re.match(r"^#(\d+)$", raw)
     if m:
         return {"raw": raw, "kind": "issue", "issue": int(m.group(1))}
+    m = re.match(r"^epic:([\w.-]+)$", raw)
+    if m:
+        return {"raw": raw, "kind": "epic", "epic": _epic_key(m.group(1))}
     return {"raw": raw, "kind": "free"}
+
+
+def _epic_key(v):
+    return int(v) if v.isdigit() else v
 
 
 def parse_deps(text):
@@ -179,31 +192,46 @@ def parse_backlog(md):
     return stories, problems
 
 
+_PARENT_LINE = re.compile(r"^\s*(?:\*\*)?parent(?:\*\*)?\s*:?(?:\*\*)?\s*#(\d+)\s*$", re.I | re.M)
 _DEP_LINE = re.compile(r"^\s*(?:\*\*)?(?:depends on|blocked by)(?:\*\*)?\s*:?(?:\*\*)?\s*(.+)$", re.I | re.M)
 
 
 def stories_from_issues(issues, cfg=None):
-    """Backlog-free mode: every open or closed issue is a story (only those labelled `story_label`, if any are).
+    """Backlog-free mode: every open or closed issue is a story (only those labelled `story_label` or
+    `task_label`, if any are).
 
-    Size and priority come from `size:S|M|L` and `priority:pN` labels, the epic from an `epic:NN` label, and
-    dependencies from `Depends on:` / `Blocked by:` lines in the body (`#12, #15`, `ADR-0003`, free text).
+    Size and priority come from `size:S|M|L` and `priority:pN` labels, the epic from an `epic:<key>` label,
+    dependencies from `Depends on:` / `Blocked by:` lines in the body (`#12, #15`, `ADR-0003`, free text), and the
+    parent story of a task from a `Parent: #N` line (written by tracker.py).
     """
     cfg = {**DEFAULTS, **(cfg or {})}
-    pool = [i for i in issues if cfg["epic_issue_label"] not in i["labels"]]
-    if any(cfg["story_label"] in i["labels"] for i in pool):
-        pool = [i for i in pool if cfg["story_label"] in i["labels"]]
+    kinds = {cfg["story_label"], cfg["task_label"]}
+    pool = [i for i in issues if cfg["epic_issue_label"] not in i["labels"] and "type:milestone" not in i["labels"]]
+    if any(kinds & set(i["labels"]) for i in pool):
+        pool = [i for i in pool if kinds & set(i["labels"])]
     stories = []
     for i in sorted(pool, key=lambda x: x["number"]):
         labels = i["labels"]
         size = next((m.group(1).upper() for l in labels if (m := re.match(r"^size:([SML])$", l, re.I))), None)
         prio = next((int(m.group(1)) for l in labels if (m := re.match(r"^priority:p(\d)$", l))), None)
-        epic = next((int(m.group(1)) for l in labels
-                     if (m := re.match(rf"^{re.escape(cfg['epic_label_prefix'])}(\d+)$", l))), None)
+        epic = next((_epic_key(m.group(1)) for l in labels
+                     if (m := re.match(rf"^{re.escape(cfg['epic_label_prefix'])}(.+)$", l))), None)
+        pm = _PARENT_LINE.search(i.get("body") or "")
         deps = []
         for m in _DEP_LINE.finditer(i.get("body") or ""):
             deps.extend(d for d in parse_deps(m.group(1)) if d["raw"] != f"#{i['number']}")
-        stories.append({"id": f"#{i['number']}", "epic": epic, "issue": i["number"], "title": i["title"],
-                        "size": size, "priority": prio, "deps": deps, "line": 0})
+        story = {"id": f"#{i['number']}", "epic": epic, "issue": i["number"], "title": i["title"],
+                 "size": size, "priority": prio, "deps": deps, "line": 0}
+        if pm:
+            story["parent"] = int(pm.group(1))
+        stories.append(story)
+    # A task waits on whatever its parent story waits on.
+    by_num = {s["issue"]: s for s in stories}
+    for s in stories:
+        p = by_num.get(s.get("parent"))
+        if p:
+            raws = {d["raw"] for d in s["deps"]}
+            s["deps"] += [d for d in p["deps"] if d["raw"] not in raws]
     return stories
 
 
@@ -349,6 +377,11 @@ def build_queue(stories, issues, prs, adrs, active_lanes=None, cfg=None):
     cfg = {**DEFAULTS, **(cfg or {})}
     lane_re = re.compile(cfg["lane_label"])
     prio_re = re.compile(cfg["priority_label"])
+    sess_re = re.compile(cfg["session_label_re"]) if cfg.get("session_label_re") else None
+    sp = cfg["status_prefix"]
+
+    def tracked_status(labels):
+        return next((l[len(sp):] for l in labels if l.startswith(sp)), None)
 
     def lane_of(labels):
         return next((m.group(1) for l in labels if (m := lane_re.match(l))), None)
@@ -377,6 +410,13 @@ def build_queue(stories, issues, prs, adrs, active_lanes=None, cfg=None):
         if issue and not s["id"].startswith("#") and not issue["title"].startswith(s["id"]):
             problems.append(_problem(s["line"], f'issue #{s["issue"]} is titled "{issue["title"][:60]}"', s["id"]))
         work = issue_work(s["issue"], issue_map, pr_idx)
+        labels = issue["labels"] if issue else []
+        tracked = tracked_status(labels)
+        claimed = [l for l in labels if sess_re and sess_re.match(l)]
+        if tracked in DONE_STATUSES:
+            work["status"] = "done"
+        elif work["status"] != "done" and (tracked in ACTIVE_STATUSES or claimed):
+            work["status"] = "in-progress"
         lane = lane_of(issue["labels"]) if issue else None
         plabel = next((m.group(1) for l in (issue["labels"] if issue else []) if (m := prio_re.match(l))), None)
         nodes[s["id"]] = {**s,
@@ -384,6 +424,25 @@ def build_queue(stories, issues, prs, adrs, active_lanes=None, cfg=None):
                           "lane": lane, "laneSource": "label" if lane else None, "status": work["status"],
                           "work": work, "assignees": issue.get("assignees", []) if issue else [],
                           "dependsOn": [], "blocks": [], "unmet": [], "ready": False, "weight": 0, "depth": 0}
+        if claimed or tracked:
+            nodes[s["id"]].update(claimedBy=claimed, tracked=tracked)
+        if tracked == "blocked" and work["status"] == "todo":
+            nodes[s["id"]]["unmet"].append({"dep": f"{sp}blocked", "why": "labelled blocked", "storyIds": []})
+
+    # Containers: a story with tasks is never queued itself; it waits on its tasks and is done when they are.
+    children = {}
+    for n in nodes.values():
+        if n.get("parent") is not None and n["parent"] in by_issue and by_issue[n["parent"]] in nodes:
+            children.setdefault(by_issue[n["parent"]], []).append(n["id"])
+    for pid, kids in children.items():
+        p = nodes[pid]
+        p["container"] = True
+        if p["status"] != "done":
+            states = [nodes[k]["status"] for k in kids]
+            if all(x == "done" for x in states):
+                p["status"] = "done"
+            elif any(x != "todo" for x in states):
+                p["status"] = "in-progress"
 
     # Lane inheritance: the most common lane of the epic's labelled stories, then the epic issue's own lane.
     epic_members = {}
@@ -466,6 +525,8 @@ def build_queue(stories, issues, prs, adrs, active_lanes=None, cfg=None):
                     n["unmet"].append({"dep": dep["raw"], "why": f"#{i['number']} is open", "storyIds": []})
             else:
                 note_unparsed(dep["raw"], n["id"])
+    for pid, kids in children.items():
+        pending.append((nodes[pid], {"raw": "tasks", "kind": "tasks"}, kids))
     for node, _dep, members in pending:
         for m in members:
             if m not in node["dependsOn"]:
@@ -475,10 +536,10 @@ def build_queue(stories, issues, prs, adrs, active_lanes=None, cfg=None):
 
     # Readiness: first the external conditions, then the story edges.
     for n in nodes.values():
-        n["ready"] = (n["status"] == "todo" and not n["unmet"]
+        n["ready"] = (n["status"] == "todo" and not n["unmet"] and not n.get("container")
                       and all(nodes[d]["status"] == "done" for d in n["dependsOn"]))
     for node, dep, members in pending:
-        if node["status"] != "todo":
+        if node["status"] != "todo" or dep["kind"] == "tasks":
             continue
         open_ = [m for m in members if nodes[m]["status"] != "done"]
         if not open_:
@@ -549,7 +610,8 @@ def build_queue(stories, issues, prs, adrs, active_lanes=None, cfg=None):
                                             key=score_key)[:15]]
 
     groups = {}
-    for n in sorted((x for x in nodes.values() if x["status"] == "todo" and not x["ready"]), key=score_key):
+    for n in sorted((x for x in nodes.values() if x["status"] == "todo" and not x["ready"] and not x.get("container")),
+                    key=score_key):
         for u in n["unmet"]:
             g = groups.setdefault(f"{u['dep']} — {u['why']}", {"dep": u["dep"], "why": u["why"], "ids": []})
             g["ids"].append(n["id"])
@@ -558,7 +620,8 @@ def build_queue(stories, issues, prs, adrs, active_lanes=None, cfg=None):
     merged_but_open = []
     for num, e in sorted(pr_idx.items()):
         i = issue_map.get(num)
-        if i and i["state"] == "OPEN" and e["merged"] and not e["open"] and cfg["epic_issue_label"] not in i["labels"]:
+        if i and i["state"] == "OPEN" and e["merged"] and not e["open"] and cfg["epic_issue_label"] not in i["labels"] \
+                and tracked_status(i["labels"]) not in DONE_STATUSES:
             merged_but_open.append({"issue": num, "title": i["title"], "prs": [p["number"] for p in e["merged"]],
                                     "story": by_issue.get(num)})
 
@@ -578,6 +641,8 @@ def _item_line(n, model=None):
     extra = [x for x in [
         f"partly merged #{', #'.join(map(str, n['work']['partialPrs']))}" if n["work"]["partialPrs"] else "",
         f"@ {', '.join(n['assignees'])}" if n["assignees"] else "",
+        f"🔒 {', '.join(n['claimedBy'])}" if n.get("claimedBy") else "",
+        f"{n['tracked']}" if n.get("tracked") and n["tracked"] not in ("todo",) and not n.get("claimedBy") else "",
     ] if x]
     issue = f" #{n['issue']}" if n["issue"] and not n["id"].startswith("#") else ""
     p = "p?" if n["priority"] is None else f"p{n['priority']}"
