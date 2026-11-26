@@ -1,6 +1,6 @@
 {
   "name": "lane-coordinator",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Run a repo as an Opus coordinator with parallel worker lanes: a dependency-DAG work scheduler, per-ticket model routing, coordinator-gated merges, a cost/quality ledger and evidence-based sprint tuning.",
   "author": {
     "name": "engineeringwiththeo",
