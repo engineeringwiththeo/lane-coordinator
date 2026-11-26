@@ -171,7 +171,7 @@ def waiting(r):
                 if b not in seen and r["nodes"][b]["status"] != "done":
                     seen.add(b)
                     stack.append(b)
-        res[num] = {"direct": sorted(direct), "total": len(seen)}
+        res[num] = {"direct": sorted(direct), "total": len(seen), "all": sorted(seen)}
     return res
 
 

@@ -1,7 +1,7 @@
 {
   "name": "lane-coordinator",
-  "version": "0.6.0",
-  "description": "Run a repo as an Opus coordinator with parallel worker sessions: GitHub-issue ticket tracking (milestone/epic/story/task, status workflow, race-safe session claims), a dependency-DAG scheduler, per-ticket model routing, coordinator-gated merges, periodic feature releases (integration \u2192 main, rc tag to staging, same commit to production) and a cost/quality ledger.",
+  "version": "0.7.0",
+  "description": "Run a repo as an Opus coordinator with parallel worker sessions, driven by a roadmap: milestones and epics synced to GitHub, ticket tracking (story/task, status workflow, session claims), a dependency-DAG planner ranked by roadmap order, ADRs that gate work, periodic releases to staging and production, per-milestone status with forecasts, model routing and a cost ledger.",
   "author": {
     "name": "engineeringwiththeo",
     "url": "https://github.com/engineeringwiththeo"
@@ -17,11 +17,14 @@
     "coordinator",
     "cost",
     "dag",
+    "forecast",
     "github-issues",
     "kanban",
+    "milestones",
     "model-routing",
     "multi-agent",
     "release",
+    "roadmap",
     "scheduler",
     "semver",
     "staging",

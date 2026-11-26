@@ -635,7 +635,8 @@ def build_queue(stories, issues, prs, adrs, active_lanes=None, cfg=None):
     # anything it transitively blocks, so a blocker for the current milestone is never parked behind it.
     milestones = []
     if cfg["milestones"]:
-        order = sorted(ms_due, key=lambda t: (ms_due[t] or "9999", _natural(t)))
+        planned = [t for t in (cfg.get("milestone_order") or []) if t in ms_due]  # the roadmap's order wins
+        order = planned + sorted((t for t in ms_due if t not in planned), key=lambda t: (ms_due[t] or "9999", _natural(t)))
         rank = {t: i for i, t in enumerate(order)}
         eff, visiting = {}, set()
 

@@ -2,6 +2,7 @@
 
 A Claude Code plugin for running a repository as **one coordinator plus parallel worker lanes**, with one ticket per lane.
 
+- **Roadmap.** `docs/roadmap.md` lists the milestones in delivery order, with due dates, goals and exit criteria, and the epics under them. `roadmap.py sync` turns it into GitHub milestones and epic issues. Roadmap order ranks the planner, and `roadmap.py status` reports per milestone: progress, epics, the ADRs holding it up, what's on staging and in production, and a forecast date that's flagged when it lands after the due date.
 - **Ticket tracking.** Milestone → epic → story → task as GitHub issues (stories and tasks are linked as sub-issues). Each ticket has one `status:*` label: todo, in-progress, testing, blocked, merging, merged, staging, deployed, done or cancelled. Sessions claim tickets with a `<project>-NN` tag; claims are race-safe and a session holds one ticket at a time. Only the coordinator merges and closes, and a session cleans up its worktree after its ticket merges.
 - **ADRs.** The coordinator owns the architecture decisions in `docs/adr`. Tickets wait on `ADR-NNNN` until it is accepted, and `adr.py pending` ranks proposed ADRs by the work they block. Briefs list each ticket's ADRs (`for-ticket`), and `adr.py check --pr` fails a PR that relies on an undecided ADR or changes an ADR's status. Decisions change by superseding, never by rewriting.
 - **Releases.** Periodically, the coordinator promotes `integration` into `main` with a "Release vX.Y.Z" PR whose notes come from the merged tickets. It then tags the merge commit `vX.Y.Z-rc.N` for staging, and once staging passes, tags the same commit `vX.Y.Z` for production. Tickets move merged → staging → deployed. Deploys run from optional hooks or from a CI workflow triggered by the release.
@@ -34,6 +35,7 @@ All scripts are in `skills/lane-coordinator/scripts/` and use only the Python 3 
 
 | Script | Use |
 |---|---|
+| `roadmap.py <init\|check\|sync [--apply]\|status>` | The plan: sync milestones and epics to GitHub, and the per-milestone status and forecast. See [references/roadmap.md](skills/lane-coordinator/references/roadmap.md). |
 | `tracker.py <setup\|epic\|story\|task\|claim\|next\|status\|release\|mine\|board\|deployed\|cleanup>` | Create and move tickets, claim work, see the board. See [references/tracker.md](skills/lane-coordinator/references/tracker.md). |
 | `adr.py <init\|new\|status\|list\|pending\|for-ticket\|check --pr N>` | Write and decide ADRs, rank the decisions blocking work, brief sessions and gate review. See [references/adr.md](skills/lane-coordinator/references/adr.md). |
 | `release.py <plan\|promote\|staging --pr N\|prod\|status>` | Feature releases: promotion PR, rc tag for staging, final tag for production. See [references/release.md](skills/lane-coordinator/references/release.md). |

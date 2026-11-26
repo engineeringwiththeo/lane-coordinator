@@ -118,6 +118,11 @@ def compute(repo=None, lanes=None, data_path=None, save_path=None, data=None, fo
     labels_cfg = queue_cfg(cfg, root)
     base = cfg.get("integration_branch", "main")
 
+    rm_path = os.path.join(root, (cfg.get("roadmap") or {}).get("path") or "docs/roadmap.md")
+    if os.path.exists(rm_path):  # the roadmap's milestone order ranks work
+        import roadmap
+        with open(rm_path, encoding="utf-8") as fh:
+            labels_cfg["milestone_order"] = [m["title"] for m in roadmap.parse(fh.read())[0]]
     if focus:
         labels_cfg["focus_milestone"] = focus
         labels_cfg["milestones"] = True

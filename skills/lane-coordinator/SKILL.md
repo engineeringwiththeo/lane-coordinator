@@ -1,6 +1,6 @@
 ---
 name: lane-coordinator
-description: Run a repo as an Opus coordinator with parallel worker sessions ("lanes"), one ticket each. It tracks milestone → epic → story → task as GitHub issues with a status workflow (todo, in-progress, testing, blocked, merging, merged, staging, deployed, done) and per-session claim tags (<project>-NN). It schedules lanes from a dependency DAG of the backlog, picks each lane's model from a routing table, has the coordinator review, merge and close every ticket, keeps architecture decisions in ADRs that gate work, briefs and review, ships periodic feature releases (integration → main, a release-candidate tag for staging, the same commit tagged for production), logs a cost/quality ledger and tunes routing each sprint. Use when coordinating multiple worker sessions on a backlog; creating epics, stories or tasks; claiming, releasing or moving a ticket's status; cleaning up a worktree after merge; writing, accepting or superseding an ADR, or checking a PR against ADRs; planning, promoting or tagging a release for staging or production; deciding what each lane works on next or which model a ticket gets; finding blockers, stale claims or dependency cycles; logging agent metrics; or running the end-of-sprint routing review. Also use to set this up in a new project ("set up lanes", "add the coordinator pattern here").
+description: Run a repo as an Opus coordinator with parallel worker sessions ("lanes"), one ticket each, driven by a roadmap (docs/roadmap.md) that syncs milestones and epics to GitHub, orders the planner and reports progress, decisions, releases and forecasts per milestone. It tracks milestone → epic → story → task as GitHub issues with a status workflow (todo, in-progress, testing, blocked, merging, merged, staging, deployed, done) and per-session claim tags (<project>-NN). It schedules lanes from a dependency DAG of the backlog, picks each lane's model from a routing table, has the coordinator review, merge and close every ticket, keeps architecture decisions in ADRs that gate work, briefs and review, ships periodic feature releases (integration → main, a release-candidate tag for staging, the same commit tagged for production), logs a cost/quality ledger and tunes routing each sprint. Use when coordinating multiple worker sessions on a backlog; writing or changing the roadmap, syncing it to GitHub, or reporting roadmap status and forecasts; creating epics, stories or tasks; claiming, releasing or moving a ticket's status; cleaning up a worktree after merge; writing, accepting or superseding an ADR, or checking a PR against ADRs; planning, promoting or tagging a release for staging or production; deciding what each lane works on next or which model a ticket gets; finding blockers, stale claims or dependency cycles; logging agent metrics; or running the end-of-sprint routing review. Also use to set this up in a new project ("set up lanes", "add the coordinator pattern here").
 ---
 
 # Lane coordinator
@@ -16,7 +16,16 @@ STATE=~/.claude/projects/<slug>/metrics     # slug = absolute repo path with eve
 ~/.claude/projects/<slug>/memory/review-patterns.md   recurring PR defects (linked from every brief)
 ```
 
-Find STATE with `python3 -I ${CLAUDE_SKILL_DIR}/scripts/state_dir.py`. If it prints `missing`, run **Setup** first. Below, `TR`, `WQ`, `ADR` and `REL` mean `python3 -I ${CLAUDE_SKILL_DIR}/scripts/` + `tracker.py`, `work_queue.py`, `adr.py` and `release.py`.
+Find STATE with `python3 -I ${CLAUDE_SKILL_DIR}/scripts/state_dir.py`. If it prints `missing`, run **Setup** first. Below, `RM`, `TR`, `WQ`, `ADR` and `REL` mean `python3 -I ${CLAUDE_SKILL_DIR}/scripts/` + `roadmap.py`, `tracker.py`, `work_queue.py`, `adr.py` and `release.py`.
+
+## How it fits together
+
+1. **The roadmap** (`docs/roadmap.md`, see `references/roadmap.md`) is the plan. It lists the milestones in delivery order, with due dates, goals and exit criteria, and the epics under each milestone. `RM sync` turns it into GitHub milestones and epic issues.
+2. **The tracker** breaks the epics into stories and tasks, which are GitHub issues with status labels, session claims, and `Depends on:` lines that can point to ADRs.
+3. **The planner** builds the dependency DAG from those issues and ranks ready work by roadmap milestone. Sessions claim from it.
+4. **ADRs** hold back tickets until each decision is made.
+5. **Releases** move merged tickets to staging and then production.
+6. **`RM status`** reports all of it per milestone, with a forecast date.
 
 ## Setup (once per project)
 
@@ -27,8 +36,9 @@ Find STATE with `python3 -I ${CLAUDE_SKILL_DIR}/scripts/state_dir.py`. If it pri
    - **`tracker`:** project name, and whether milestones are GitHub milestones or labels. See `references/tracker.md`.
    - **`release`:** main branch, version bump, and optional deploy hooks for staging and production. See `references/release.md`.
    - the risky stacks this codebase has.
-3. Run `TR setup` to create the `status:*`, `type:*` and `<project>-NN` labels, and `ADR init` to create `docs/adr` and its template (`adr.dir`). Then run `WQ` once and fix any parse problems it reports.
-4. Add a pointer to `MEMORY.md`: `- [Review patterns](review-patterns.md) — recurring PR defects; link from every worker brief`.
+3. Run `TR setup` to create the `status:*`, `type:*` and `<project>-NN` labels, and `ADR init` to create `docs/adr` and its template (`adr.dir`).
+4. **Write the roadmap with the owner:** run `RM init`, fill in the milestones and epics, then `RM sync` and `RM sync --apply`. Then break the first milestone's epics into stories with `TR story`. Then run `WQ` once and fix any parse problems it reports.
+5. Add a pointer to `MEMORY.md`: `- [Review patterns](review-patterns.md) — recurring PR defects; link from every worker brief`.
 
 ## Tickets and workflow
 
@@ -64,6 +74,11 @@ todo → in-progress → testing → merging ──(coordinator)──→ merged
 8. **Helpers:** use helper sub-agents on the `helper` model for search, test runs and log reading.
 
 ## The coordinator loop
+
+**0. Roadmap.** Run this weekly, at sprint end and before each release: `RM status`.
+- **At risk:** a milestone is 🔴 when its forecast lands after its due date. Re-plan with the owner: cut scope, move an epic in `docs/roadmap.md`, open a lane, or chase the decisions it lists. Then `RM sync --apply`.
+- **Drift:** put unplanned tickets and off-roadmap epics on the roadmap, or close them.
+- **For the owner:** publish the status as a page they can read.
 
 **1. Plan.** Run `WQ --lanes <active lanes> --models`, adding `--milestone M` to focus on one milestone. It builds the dependency DAG straight from the tracker (stories, tasks as children of their stories, status labels, claims, epics, milestones), plus ADRs and PRs into the integration branch, and ranks each lane's ready queue. The ranking is by milestone (a blocker inherits the earliest milestone it unblocks), then how much not-done work an item unblocks, then priority, then critical-path length, then smaller first. The **Milestones** table shows progress and the longest chain left in each. Act on the rest of the report too:
 - **Paused lane owns a blocker:** open that lane, or reassign the story.
@@ -109,7 +124,7 @@ Sub-agent merges get flagged as "Merge Without Review". Known pins and infra fla
 
 ## Sprint end (Sunday)
 
-Run `python3 -I ${CLAUDE_SKILL_DIR}/scripts/sprint.py` and check what it suggests. It also flags estimate misses and tickets whose `reverted_7d` hasn't been set yet. Fill those in (was the PR reverted, or did a later PR fix a defect it introduced?), then run it again. If you accept the suggestions, add `--apply` to write the overrides to `routing.json`. Write `sprints/<YYYY-Www>.md` with the numbers behind every change and the estimate notes for the planner.
+Run `RM status` and include its summary table in the sprint report. Then run `python3 -I ${CLAUDE_SKILL_DIR}/scripts/sprint.py` and check what it suggests. It also flags estimate misses and tickets whose `reverted_7d` hasn't been set yet. Fill those in (was the PR reverted, or did a later PR fix a defect it introduced?), then run it again. If you accept the suggestions, add `--apply` to write the overrides to `routing.json`. Write `sprints/<YYYY-Www>.md` with the numbers behind every change and the estimate notes for the planner.
 
 ## Defaults
 

@@ -13,6 +13,7 @@ class FakeGitHub:
         self._issues, self._comments, self._labels, self._milestones, self.subs = {}, {}, set(), {}, []
         self.prs = {}
         self._tags, self.releases, self.parents, self.ahead_by = {}, [], {}, 0
+        self.ms_meta = {}
         self._ids = itertools.count(1000)
         self.on_comment = None  # hook(n, comment) to simulate another session acting concurrently
 
@@ -121,4 +122,17 @@ class FakeGitHub:
 
     def create_milestone(self, title, due_on=None, description=""):
         self._milestones[title] = len(self._milestones) + 1
+        self.ms_meta[title] = {"state": "open", "description": description, "due_on": (due_on or "")[:10] or None}
         return self._milestones[title]
+
+    def milestones_full(self):
+        return [{"number": n, "title": t, **self.ms_meta.get(t, {"state": "open", "description": "", "due_on": None})}
+                for t, n in self._milestones.items()]
+
+    def update_milestone(self, number, **fields):
+        t = next(t for t, n in self._milestones.items() if n == number)
+        meta = self.ms_meta.setdefault(t, {"state": "open", "description": "", "due_on": None})
+        meta.update({k: (v[:10] if k == "due_on" and v else v) for k, v in fields.items()})
+
+    def set_issue_milestone(self, n, number):
+        self._issues[n]["milestone"] = next(t for t, num in self._milestones.items() if num == number)

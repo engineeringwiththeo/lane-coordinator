@@ -43,5 +43,8 @@
   },
   "adr": {
     "dir": "docs/adr"
+  },
+  "roadmap": {
+    "path": "docs/roadmap.md"
   }
 }

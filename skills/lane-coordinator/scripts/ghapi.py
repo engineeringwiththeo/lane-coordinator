@@ -133,6 +133,19 @@ class GitHub:
         return {m["title"]: m["number"] for m in self.api("GET", self._r("/milestones?state=all&per_page=100"),
                                                           paginate=True)}
 
+    def milestones_full(self):
+        return [{"number": m["number"], "title": m["title"], "state": m["state"], "description": m.get("description") or "",
+                 "due_on": (m.get("due_on") or "")[:10] or None}
+                for m in self.api("GET", self._r("/milestones?state=all&per_page=100"), paginate=True)]
+
+    def update_milestone(self, number, **fields):
+        if "due_on" in fields and fields["due_on"] and len(fields["due_on"]) == 10:
+            fields["due_on"] = f"{fields['due_on']}T23:59:59Z"
+        self.api("PATCH", self._r(f"/milestones/{number}"), fields)
+
+    def set_issue_milestone(self, n, number):
+        self.api("PATCH", self._r(f"/issues/{n}"), {"milestone": number})
+
     def create_milestone(self, title, due_on=None, description=""):
         payload = {"title": title, "description": description}
         if due_on:
