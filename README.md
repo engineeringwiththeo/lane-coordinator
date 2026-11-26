@@ -15,19 +15,67 @@ A Claude Code plugin for running a repository as **one coordinator plus parallel
 
 ## Install
 
+Plugins installed at user scope are shared by the terminal CLI, the Claude Desktop app (Code tab) and the VS Code extension, so install it once from any of them:
+
+| Where | How |
+|---|---|
+| Terminal | `claude plugin marketplace add engineeringwiththeo/lane-coordinator`, then `claude plugin install lane-coordinator@engineeringwiththeo`, or `/plugin` inside `claude` |
+| VS Code extension | type `/plugins` in the prompt box. In **Marketplaces**, add `engineeringwiththeo/lane-coordinator`; in **Plugins**, install `lane-coordinator` |
+| Claude Desktop (Code tab) | **+** next to the prompt → **Add plugins** → add the marketplace and install |
+
+Update with `claude plugin update lane-coordinator@engineeringwiththeo`, or from the same plugin screens.
+
+The terminal `claude` command doesn't come with Claude Desktop or the VS Code extension. To get it, use one of:
+
+- `curl -fsSL https://claude.ai/install.sh | bash`: the native installer, which updates itself;
+- `brew install --cask claude-code`: Homebrew, stable channel; use `claude-code@latest` for every release. Update with `brew upgrade`;
+- `npm install -g @anthropic-ai/claude-code@latest`: needs Node 22+.
+
+## Using it in a project
+
+The skill loads by itself when you talk about lanes, tickets, the roadmap, ADRs or releases. You can also call it directly as **`/lane-coordinator:lane-coordinator`**.
+
+**1. Set up (once), in a Claude Code session opened at the repo's main checkout.** This session is the coordinator, session 00:
+
 ```
-/plugin marketplace add engineeringwiththeo/lane-coordinator
-/plugin install lane-coordinator@engineeringwiththeo
+/lane-coordinator:lane-coordinator set up lanes here
 ```
 
-Then, in any repo, ask Claude to "set up lanes here". It runs `tracker.py setup` to create the labels. The setup creates per-project state in `~/.claude/projects/<repo-slug>/metrics/` (outside your repo):
+Claude then:
+- runs `init.sh` to create the per-project state;
+- fills in `config.json` with you: the integration branch, the tracker's project name and milestone mode, and the release settings;
+- runs `tracker.py setup` to create the labels and `adr.py init` to create `docs/adr`;
+- writes `docs/roadmap.md` with you, then runs `roadmap.py sync --apply`;
+- breaks the first milestone's epics into stories.
+
+Release automation needs separate `integration` and `main` branches.
+
+**2. Open worker sessions.** Each lane is a git worktree named `<project>-NN`, which is how a session knows its number. Alternatively, set `LANE_SESSION=NN`.
+
+```
+git worktree add -b lane/03 ../<project>-03 origin/integration
+```
+
+Open Claude Code in that folder and ask it to "pick up the next ticket". It follows the worker protocol: `tracker.py next` → testing → merging → report ready → `cleanup` after the coordinator merges.
+
+**3. Run the coordinator loop** from session 00. Ask for things like:
+- "roadmap status"
+- "plan the lanes"
+- "what decisions are blocking work?"
+- "review #123"
+- "cut a release"
+- "sprint end"
+
+The setup creates per-project state in `~/.claude/projects/<repo-slug>/metrics/`, outside your repo:
 
 | File | Purpose |
 |---|---|
-| `config.json` | integration branch, work-queue source, tracker settings, risk stacks |
+| `config.json` | integration branch, work-queue source, tracker, ADR, roadmap and release settings, risk stacks |
 | `routing.json` | live model table (roles, stack floors, size defaults, overrides) |
 | `ledger.jsonl` | session and ticket rows |
 | `sprints/YYYY-Www.md` | weekly routing reports |
+
+In the repo itself, it adds `docs/roadmap.md` and `docs/adr/`.
 
 ## Scripts
 

@@ -1,6 +1,6 @@
 {
   "name": "lane-coordinator",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Run a repo as an Opus coordinator with parallel worker sessions, driven by a roadmap: milestones and epics synced to GitHub, ticket tracking (story/task, status workflow, session claims), a dependency-DAG planner ranked by roadmap order, ADRs that gate work, periodic releases to staging and production, per-milestone status with forecasts, model routing and a cost ledger.",
   "author": {
     "name": "engineeringwiththeo",
