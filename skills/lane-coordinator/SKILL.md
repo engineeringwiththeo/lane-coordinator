@@ -1,6 +1,6 @@
 ---
 name: lane-coordinator
-description: Run a repo as an Opus coordinator with parallel worker "lanes", one ticket per lane. It picks each lane's model from a routing table, has the coordinator review and merge every PR, logs a cost/quality ledger and tunes routing each sprint. Use when coordinating multiple worker agents on a backlog, spawning lane, CI-watcher or helper sub-agents, deciding which model a ticket gets, closing story issues after merge, logging agent metrics, or running the end-of-sprint routing review. Also use to set this up in a new project ("set up lanes", "add the coordinator pattern here").
+description: Run a repo as an Opus coordinator with parallel worker "lanes", one ticket per lane. It schedules lanes from a dependency DAG of the backlog, picks each lane's model from a routing table, has the coordinator review and merge every PR, logs a cost/quality ledger and tunes routing each sprint. Use when coordinating multiple worker agents on a backlog, spawning lane, CI-watcher or helper sub-agents, deciding what each lane works on next or which model a ticket gets, finding blockers or dependency cycles, closing story issues after merge, logging agent metrics, or running the end-of-sprint routing review. Also use to set this up in a new project ("set up lanes", "add the coordinator pattern here").
 ---
 
 # Lane coordinator
@@ -9,7 +9,7 @@ You are the **coordinator**. You plan, brief, review and approve. Workers do the
 
 ```
 STATE=~/.claude/projects/<slug>/metrics     # slug = absolute repo path with every non-alphanumeric char → "-"
-  config.json        project settings (integration branch, queue command, risk stacks)
+  config.json        project settings (integration branch, work-queue source, labels, risk stacks)
   routing.json       live model table
   ledger.jsonl       one row per worker session and per merged ticket
   sprints/<YYYY-Www>.md
@@ -21,12 +21,18 @@ Find STATE with `python3 -I ${CLAUDE_SKILL_DIR}/scripts/state_dir.py`. If it pri
 ## Setup (once per project)
 
 1. `bash ${CLAUDE_SKILL_DIR}/scripts/init.sh [repo_path]` creates STATE from the skill's `templates/` and never overwrites existing files.
-2. Fill in `config.json` from the repo: integration branch, work-queue command (or `null` to pick from GitHub issues), ticket-ID pattern, and the risky stacks this codebase has.
+2. Fill in `config.json` from the repo: integration branch, the `queue` section (where stories and their dependencies live: see `references/queue.md`), and the risky stacks this codebase has. Then run the work queue once and fix any parse problems it reports.
 3. Add a pointer to `MEMORY.md`: `- [Review patterns](review-patterns.md) — recurring PR defects; link from every worker brief`.
 
 ## The loop
 
-**1. Pick work.** Run `config.queue_cmd` if it is set. Otherwise list open issues that aren't blocked. Each lane gets one story.
+**1. Pick work.** Run `python3 -I ${CLAUDE_SKILL_DIR}/scripts/work_queue.py --lanes <active lanes> --models`, or `config.queue_cmd` if the project has its own scheduler. It builds the dependency DAG (stories, ADRs, issues, and PRs into the integration branch) and gives each lane the top of its ranked ready queue. The ranking is by how much not-done work an item unblocks, then priority, then critical-path length, then smaller first. An idle lane borrows the best unassigned or paused-lane item. Act on the rest of the report too:
+- **Paused lane owns a blocker:** open that lane, or reassign the story.
+- **Merged but issue still open:** close it per step 5.
+- **Unparsed dependencies:** these are treated as satisfied, so check each one by hand.
+- **Cycles** and **parse problems:** fix them in the backlog.
+
+The script is read-only on GitHub. Each lane gets one story.
 
 **2. Route.** Work out the ticket type `size:kind:stack` (see `references/metrics.md`), then run `python3 -I ${CLAUDE_SKILL_DIR}/scripts/route.py <type> [--issue N]`. Pass the model it prints as `model` on the Agent call. The script applies overrides, stack floors, size defaults and the 10% exploration sample, and prints `explore=true|false`.
 

@@ -1,8 +1,25 @@
 {
   "integration_branch": "main",
   "queue_cmd": null,
-  "ticket_id_pattern": "E\\d+-S\\d+",
-  "stack_order": ["sec", "db", "money", "api", "ui", "docs"],
+  "stack_order": [
+    "sec",
+    "db",
+    "money",
+    "api",
+    "ui",
+    "docs"
+  ],
   "exploration_modulo": 10,
-  "window_days": 28
+  "window_days": 28,
+  "queue": {
+    "source": "issues",
+    "backlog": null,
+    "adr_dir": null,
+    "lane_label": "^lane:(\\d+)$",
+    "story_label": "type:story",
+    "epic_issue_label": "type:epic",
+    "epic_label_prefix": "epic:",
+    "issue_limit": 2000,
+    "pr_limit": 1000
+  }
 }

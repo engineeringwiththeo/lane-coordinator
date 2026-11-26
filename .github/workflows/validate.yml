@@ -10,6 +10,7 @@ jobs:
           node-version: 22
       - run: npm install -g @anthropic-ai/claude-code
       - run: claude plugin validate --strict .
+      - run: python3 -I -m unittest discover -s tests -v
       - name: Script smoke test
         run: |
           S=skills/lane-coordinator/scripts
@@ -19,3 +20,5 @@ jobs:
           python3 -I $S/route.py M:feature:db --repo /tmp/demo | grep -q 'model=claude-sonnet'
           python3 -I $S/route.py S:bug:ui --issue 120 --repo /tmp/demo | grep -q 'explore=false'
           python3 -I $S/sprint.py --repo /tmp/demo
+          echo '{"issues":[],"prs":[]}' > /tmp/snap.json
+          python3 -I $S/work_queue.py --repo /tmp/demo --data /tmp/snap.json

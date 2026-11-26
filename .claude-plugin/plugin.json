@@ -1,10 +1,23 @@
 {
   "name": "lane-coordinator",
-  "version": "0.1.0",
-  "description": "Run a repo as an Opus coordinator with parallel worker lanes: per-ticket model routing, coordinator-gated merges, a cost/quality ledger and evidence-based sprint tuning.",
-  "author": { "name": "engineeringwiththeo", "url": "https://github.com/engineeringwiththeo" },
+  "version": "0.2.0",
+  "description": "Run a repo as an Opus coordinator with parallel worker lanes: a dependency-DAG work scheduler, per-ticket model routing, coordinator-gated merges, a cost/quality ledger and evidence-based sprint tuning.",
+  "author": {
+    "name": "engineeringwiththeo",
+    "url": "https://github.com/engineeringwiththeo"
+  },
   "homepage": "https://github.com/engineeringwiththeo/lane-coordinator",
   "repository": "https://github.com/engineeringwiththeo/lane-coordinator",
   "license": "MIT",
-  "keywords": ["agents", "coordinator", "multi-agent", "model-routing", "cost", "workflow"]
+  "keywords": [
+    "agents",
+    "backlog",
+    "coordinator",
+    "cost",
+    "dag",
+    "model-routing",
+    "multi-agent",
+    "scheduler",
+    "workflow"
+  ]
 }
