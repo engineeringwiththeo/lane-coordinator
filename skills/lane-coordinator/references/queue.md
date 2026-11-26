@@ -37,6 +37,7 @@ Set `queue.backlog` to the file's path. Each story is a level-3 heading in this 
 | `EPIC 26` / `E26` | every story in the epic is done. These are graph edges. If the backlog has none of its stories, the epic's GitHub stories (`epic:` label plus `story_label`) are checked instead. |
 | `ADR-0051` | the ADR's `- **Status:**` line starts with "Accepted". Set `queue.adr_dir`; ADR files are named `NNNN-*.md`. |
 | `#211` (not a story) | that issue is done. |
+| `milestone:<name>` | every ticket in that milestone is done (milestones on) |
 | anything else | it is treated as satisfied and listed under **Unparsed dependencies**, so check those by hand. |
 
 ## Done, in progress, ready
@@ -59,11 +60,36 @@ Ready items are sorted by:
 - **Next item per lane:** each `--lanes` lane takes the top of its own queue. A lane with nothing ready borrows the best item from unassigned or inactive lanes, and no item goes to two lanes.
 - **Paused lane owns a blocker:** the report warns when an inactive lane owns a not-done item that blocks others.
 
+## Reading the issue tracker
+
+In issues mode, the planner reads everything `tracker.py` writes, so the plan always matches GitHub:
+
+| Tracker writes | Planner uses it as |
+|---|---|
+| `type:story` / `type:task` issues; `type:epic` and `type:milestone` are skipped | the work items |
+| `Parent: #N` (task → story) | a story with tasks is a **container**: never queued itself, done when its tasks are, in progress when any is; its tasks also wait on its dependencies |
+| `Depends on:` / `Blocked by:` lines | graph edges (`#N`, `epic:<key>`, `milestone:<name>`, `ADR-NNNN`) |
+| `status:merged`, `staging`, `deployed`, `done`, `cancelled` | done |
+| `status:in-progress`, `testing`, `merging`, or a `<project>-NN` claim | in progress (shown with 🔒 and the session) |
+| `status:blocked` | not ready (listed under `status:blocked`) |
+| `epic:<key>` on stories, and `lane:NN` on the epic issue | lane inheritance, and `epic:<key>` dependencies |
+| GitHub milestone (or a `milestone:` label) | ranking, the per-milestone report, `milestone:` dependencies, `--milestone` focus |
+
+## Milestones
+
+These are on by default in issues mode and can be switched with `queue.milestones`.
+- **Ranking:** milestones are ordered by due date, then title. Ready work is ranked by milestone first, then by the rules above.
+- **Blockers move up:** a ticket inherits the earliest milestone of anything it transitively blocks. An M2 ticket that an M1 story waits on is therefore planned as M1 work.
+- **Report:** the report gains a **Milestones** table with done/total, in progress, ready, blocked, and the longest chain left.
+- **Focus:** `--milestone M1` (in `work_queue.py` and `tracker.py next`) queues only that milestone's tickets and their transitive blockers. "M1" matches "M1 — Foundation".
+- **Dependencies:** `Depends on: milestone:M1` waits for every ticket in that milestone.
+
 ## Flags
 
 | Flag | Effect |
 |---|---|
 | `--lanes 01,04` | active lanes (default: every lane seen) |
+| `--milestone M` | focus on one milestone and its blockers |
 | `--models` | appends the routed model for each next item (`kind:` and `stack:` labels sharpen it) |
 | `--json OUT` | writes the full graph: nodes with `dependsOn`, `blocks`, `unmet`, `weight`, `depth` |
 | `--save-data F` / `--data F` | snapshot the GitHub data, or run from a snapshot (offline, tests) |

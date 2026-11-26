@@ -20,7 +20,8 @@
     "epic_issue_label": "type:epic",
     "epic_label_prefix": "epic:",
     "issue_limit": 2000,
-    "pr_limit": 1000
+    "pr_limit": 1000,
+    "milestones": true
   },
   "tracker": {
     "project": null,

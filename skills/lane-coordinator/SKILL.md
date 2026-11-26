@@ -64,7 +64,7 @@ todo → in-progress → testing → merging ──(coordinator)──→ merged
 
 ## The coordinator loop
 
-**1. Plan.** Run `WQ --lanes <active lanes> --models`. It builds the dependency DAG (stories, tasks, ADRs, issues, PRs into the integration branch, plus status labels and claims) and ranks each lane's ready queue. The ranking is by how much not-done work an item unblocks, then priority, then critical-path length, then smaller first. Act on the rest of the report too:
+**1. Plan.** Run `WQ --lanes <active lanes> --models`, adding `--milestone M` to focus on one milestone. It builds the dependency DAG straight from the tracker (stories, tasks as children of their stories, status labels, claims, epics, milestones), plus ADRs and PRs into the integration branch, and ranks each lane's ready queue. The ranking is by milestone (a blocker inherits the earliest milestone it unblocks), then how much not-done work an item unblocks, then priority, then critical-path length, then smaller first. The **Milestones** table shows progress and the longest chain left in each. Act on the rest of the report too:
 - **Paused lane owns a blocker:** open that lane, or reassign the story.
 - **Merged but issue still open:** set its status per step 5.
 - **Unparsed dependencies:** these are treated as satisfied, so check each one by hand.

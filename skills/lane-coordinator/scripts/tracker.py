@@ -10,7 +10,7 @@ Usage: python3 -I tracker.py [--repo PATH] [--session NN] <command> ...
               [--lane NN] [--body TEXT]             a sub-issue of the epic; inherits its milestone
   task TITLE --story N [--size] [--depends] [--body] a sub-issue of the story; inherits epic/feature/milestone/lane
   claim N [--force]                                 claim a ticket for this session (race-safe)
-  next [--lanes 01,02] [--dry-run]                  claim the best ready ticket from the DAG work queue
+  next [--lanes 01,02] [--milestone M] [--dry-run]  claim the best ready ticket from the DAG work queue
   status N STATE [--note TEXT] [--pr N] [--force]   move a ticket through the workflow
   release N [--note TEXT]                           give a claim back (status → todo)
   mine                                              this session's claimed tickets
@@ -403,15 +403,17 @@ def cleanup(worktree, base, remove=False, force=False, merged_check=pr_merged, r
 
 # ─── CLI ─────────────────────────────────────────────────────────────────────────────────────────
 
-def next_ticket(gh, t, session, repo, lanes=None, dry_run=False, tries=5):
+def next_ticket(gh, t, session, repo, lanes=None, dry_run=False, tries=5, milestone=None, data=None):
     import work_queue
     me = session_label(t, session)
     held = [i["number"] for i in gh.issues(state="open", labels=[me]) if status_of(t, i) in HELD]
     if held and str(session).zfill(2) != t["coordinator_session"] and not dry_run:
         return {"claimed": False, "note": f"{me} already holds #{', #'.join(map(str, held))}; finish it first"}
-    r, _data = work_queue.compute(repo, lanes)
+    r, _data = work_queue.compute(repo, lanes, data=data, focus=milestone)
     lane = str(session).zfill(2)
     ready = sorted((n for n in r["nodes"].values() if n["ready"] and n["issue"]), key=dag.score_key)
+    if "focus" in r:
+        ready = [n for n in ready if n["id"] in set(r["focus"])]
     active = set(r["activeLanes"])
     cands = [n for n in ready if n["lane"] == lane] + [n for n in ready if n["lane"] is None or n["lane"] not in active]
     if dry_run:
@@ -450,6 +452,7 @@ def main(argv=None):
             s.add_argument("--story", type=int, required=True)
     s = sub.add_parser("claim"); s.add_argument("issue", type=int); s.add_argument("--force", action="store_true")
     s = sub.add_parser("next"); s.add_argument("--lanes"); s.add_argument("--dry-run", action="store_true")
+    s.add_argument("--milestone")
     s = sub.add_parser("status"); s.add_argument("issue", type=int); s.add_argument("state")
     s.add_argument("--note"); s.add_argument("--pr", type=int); s.add_argument("--force", action="store_true")
     s = sub.add_parser("release"); s.add_argument("issue", type=int); s.add_argument("--note")
@@ -494,7 +497,7 @@ def main(argv=None):
         out(claim(gh, t, a.issue, session, a.force))
     elif a.cmd == "next":
         lanes = [l.strip() for l in (a.lanes or "").split(",") if l.strip()] or None
-        out(next_ticket(gh, t, session, a.repo, lanes, a.dry_run))
+        out(next_ticket(gh, t, session, a.repo, lanes, a.dry_run, milestone=a.milestone))
     elif a.cmd == "status":
         out(set_status(gh, t, a.issue, a.state, session, a.note, a.pr, a.force))
     elif a.cmd == "release":

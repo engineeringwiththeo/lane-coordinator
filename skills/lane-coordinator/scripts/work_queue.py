@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """What each lane should pick up next: the dependency-DAG work queue.
 
-Usage: python3 -I work_queue.py [--repo PATH] [--lanes 01,04] [--json OUT] [--models]
+Usage: python3 -I work_queue.py [--repo PATH] [--lanes 01,04] [--milestone M] [--json OUT] [--models]
                                 [--data SNAPSHOT.json] [--save-data SNAPSHOT.json]
 
 Reads stories (config `queue.source`: "backlog" = story headings in a markdown file, "issues" = GitHub issues with
@@ -9,6 +9,9 @@ Reads stories (config `queue.source`: "backlog" = story headings in a markdown f
 calls), and prints a markdown report: next item per active lane, ranked ready queues, top blockers, what blocks the
 rest, merged-but-open issues, unparsed dependencies and cycles. Read-only on GitHub.
 
+--milestone  focus: only that milestone's tickets and their transitive blockers are queued and assigned
+             ("M1" matches "M1 — Foundation"). Milestones are read by default in issues mode
+             (config queue.milestones), which ranks earlier milestones first.
 --models     adds the routed model for each lane's next item (size from the story; kind/stack from `kind:` and
              `stack:` issue labels if present, otherwise the size default plus a reminder to check the stack floor).
 --data       uses a saved {"issues": [...], "prs": [...]} snapshot instead of calling gh (tests, offline).
@@ -41,9 +44,12 @@ def gh(args, cwd):
 
 def fetch(root, base, qc):
     raw_issues = gh(["issue", "list", "--state", "all", "--limit", str(qc["issue_limit"]), "--json",
-                     "number,state,labels,title,assignees" + (",body" if qc["source"] == "issues" else "")], root)
+                     "number,state,labels,title,assignees,milestone" + (",body" if qc["source"] == "issues" else "")],
+                    root)
     issues = [{"number": i["number"], "state": "CLOSED" if i["state"] == "CLOSED" else "OPEN", "title": i["title"],
                "labels": [l["name"] for l in i["labels"]], "assignees": [a["login"] for a in i["assignees"]],
+               "milestone": ({"title": i["milestone"]["title"], "dueOn": i["milestone"].get("dueOn")}
+                             if i.get("milestone") else None),
                **({"body": i.get("body") or ""} if qc["source"] == "issues" else {})} for i in raw_issues]
     prs = gh(["pr", "list", "--base", base, "--state", "all", "--limit", str(qc["pr_limit"]), "--json",
               "number,title,body,state,mergedAt"], root)
@@ -81,7 +87,9 @@ def model_hint(node, issue, routing):
 def queue_cfg(cfg, root):
     """dag config: label names from config.queue, plus the status prefix and session-label pattern from
     config.tracker so claimed and status-labelled tickets count as in progress / done / blocked."""
-    labels_cfg = {k: v for k, v in (cfg.get("queue") or {}).items() if k in dag.DEFAULTS}
+    q = {**DEFAULT_QUEUE, **(cfg.get("queue") or {})}
+    labels_cfg = {k: v for k, v in q.items() if k in dag.DEFAULTS}
+    labels_cfg.setdefault("milestones", q["source"] == "issues")
     try:
         import tracker
         t = tracker.tracker_cfg(cfg, root)
@@ -92,7 +100,17 @@ def queue_cfg(cfg, root):
     return labels_cfg
 
 
-def compute(repo=None, lanes=None, data_path=None, save_path=None):
+def data_from_issues(issues, prs=()):
+    """Tracker-format issues (ghapi.GitHub / tests) → the snapshot shape compute() reads."""
+    return {"issues": [{"number": i["number"], "state": "CLOSED" if i["state"].lower() == "closed" else "OPEN",
+                        "title": i["title"], "labels": list(i["labels"]), "assignees": i.get("assignees", []),
+                        "body": i.get("body", ""), "milestone": i.get("milestone")} for i in issues],
+            "prs": list(prs)}
+
+
+def compute(repo=None, lanes=None, data_path=None, save_path=None, data=None, focus=None):
+    """Build the queue. `data` (a snapshot dict) skips GitHub; `focus` limits assignments to one milestone's
+    tickets plus whatever blocks them."""
     root = repo_root(repo)
     sd = state_dir(repo)
     cfg = load_json(os.path.join(sd, "config.json"), {}) or {}
@@ -100,7 +118,11 @@ def compute(repo=None, lanes=None, data_path=None, save_path=None):
     labels_cfg = queue_cfg(cfg, root)
     base = cfg.get("integration_branch", "main")
 
-    data = load_json(data_path) if data_path else fetch(root, base, qc)
+    if focus:
+        labels_cfg["focus_milestone"] = focus
+        labels_cfg["milestones"] = True
+    if data is None:
+        data = load_json(data_path) if data_path else fetch(root, base, qc)
     if save_path:
         with open(save_path, "w") as fh:
             json.dump(data, fh)
@@ -122,7 +144,7 @@ def main():
     repo = arg("--repo")
     sd = state_dir(repo)
     lanes = [l.strip() for l in (arg("--lanes") or "").split(",") if l.strip()] or None
-    r, data = compute(repo, lanes, arg("--data"), arg("--save-data"))
+    r, data = compute(repo, lanes, arg("--data"), arg("--save-data"), focus=arg("--milestone"))
 
     report = dag.render_report(r)
     if "--models" in sys.argv:

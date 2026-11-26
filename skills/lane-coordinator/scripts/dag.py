@@ -28,6 +28,7 @@ DEFAULTS = {
     "task_label": "type:task",
     "status_prefix": "status:",
     "session_label_re": None,  # e.g. ^myhoa2-(\d+)$ : set by work_queue.py from the tracker config
+    "milestones": False,       # read milestones: rank by them, `milestone:` deps, a per-milestone report
 }
 
 DONE_STATUSES = {"merged", "staging", "deployed", "done", "cancelled"}
@@ -97,11 +98,31 @@ def parse_dep(text):
     m = re.match(r"^epic:([\w.-]+)$", raw)
     if m:
         return {"raw": raw, "kind": "epic", "epic": _epic_key(m.group(1))}
+    m = re.match(r"^milestone:\s*(.+)$", raw)
+    if m:
+        return {"raw": raw, "kind": "milestone", "milestone": m.group(1).strip()}
     return {"raw": raw, "kind": "free"}
 
 
 def _epic_key(v):
     return int(v) if v.isdigit() else v
+
+
+def milestone_of(issue):
+    """(title, due) from a GitHub milestone (gh's {title, dueOn} or a plain title) or a `milestone:` label."""
+    if not issue:
+        return None, None
+    m = issue.get("milestone")
+    if isinstance(m, dict) and m.get("title"):
+        return m["title"], m.get("dueOn")
+    if isinstance(m, str) and m:
+        return m, None
+    return next((l[len("milestone:"):] for l in issue.get("labels", []) if l.startswith("milestone:")), None), None
+
+
+def milestone_matches(title, name):
+    """`milestone:M1` matches "M1" and "M1 — Foundation"."""
+    return bool(title) and (title == name or title.startswith(name + " "))
 
 
 def parse_deps(text):
@@ -304,7 +325,7 @@ def issue_work(number, issues, prs):
 
 def score_key(n):
     """Sort key: earlier = work it first."""
-    return (-n["weight"], n["priority"] if n["priority"] is not None else 9, -n["depth"],
+    return (n.get("msRank", 0), -n["weight"], n["priority"] if n["priority"] is not None else 9, -n["depth"],
             SIZE_ORDER[n["size"]] if n["size"] else 9, _natural(n["id"]))
 
 
@@ -401,6 +422,11 @@ def build_queue(stories, issues, prs, adrs, active_lanes=None, cfg=None):
         m = re.match(r"^EPIC\s+(\d+)\b", i["title"])
         if m and cfg["epic_issue_label"] in i["labels"]:
             epic_issues[int(m.group(1))] = i
+    for i in issues:  # tracker epics: any title, keyed by their epic:<key> label
+        if cfg["epic_issue_label"] in i["labels"]:
+            for l in i["labels"]:
+                if l.startswith(cfg["epic_label_prefix"]):
+                    epic_issues.setdefault(_epic_key(l[len(cfg["epic_label_prefix"]):]), i)
 
     nodes = {}
     for s in stories:
@@ -428,6 +454,14 @@ def build_queue(stories, issues, prs, adrs, active_lanes=None, cfg=None):
             nodes[s["id"]].update(claimedBy=claimed, tracked=tracked)
         if tracked == "blocked" and work["status"] == "todo":
             nodes[s["id"]]["unmet"].append({"dep": f"{sp}blocked", "why": "labelled blocked", "storyIds": []})
+
+    ms_due = {}
+    if cfg["milestones"]:
+        for n in nodes.values():
+            title, due = milestone_of(issue_map.get(n["issue"]) if n["issue"] is not None else None)
+            n["milestone"] = title
+            if title and (due or title not in ms_due):
+                ms_due[title] = due
 
     # Containers: a story with tasks is never queued itself; it waits on its tasks and is done when they are.
     children = {}
@@ -510,6 +544,13 @@ def build_queue(stories, issues, prs, adrs, active_lanes=None, cfg=None):
                             n["unmet"].append({"dep": dep["raw"],
                                                "why": f"{len(open_)} of its {len(gh_stories)} stories open",
                                                "storyIds": []})
+            elif dep["kind"] == "milestone":
+                members = [m["id"] for m in nodes.values()
+                           if m["id"] != n["id"] and milestone_matches(m.get("milestone"), dep["milestone"])]
+                if members:
+                    pending.append((n, dep, members))
+                else:
+                    note_unparsed(dep["raw"], n["id"])
             elif dep["kind"] == "adr":
                 st = adrs.get(dep["adr"], ...)
                 if not is_accepted(None if st is ... else st):
@@ -547,6 +588,9 @@ def build_queue(stories, issues, prs, adrs, active_lanes=None, cfg=None):
         if dep["kind"] == "epic":
             why = f"{len(open_)} of its {len(members)} stories not done"
             label = f"EPIC {str(dep['epic']).zfill(2)}"
+        elif dep["kind"] == "milestone":
+            why = f"{len(open_)} of its {len(members)} tickets not done"
+            label = dep["raw"]
         else:
             why, label = status_word(open_[0]), open_[0]
         if not any(u["dep"] == label for u in node["unmet"]):
@@ -587,12 +631,56 @@ def build_queue(stories, issues, prs, adrs, active_lanes=None, cfg=None):
     for n in nodes.values():
         n["depth"] = depth_of(n["id"]) if not_done(n["id"]) else 0
 
+    # Milestone rank: earlier milestone (due date, then title) first. A ticket inherits the earliest milestone of
+    # anything it transitively blocks, so a blocker for the current milestone is never parked behind it.
+    milestones = []
+    if cfg["milestones"]:
+        order = sorted(ms_due, key=lambda t: (ms_due[t] or "9999", _natural(t)))
+        rank = {t: i for i, t in enumerate(order)}
+        eff, visiting = {}, set()
+
+        def eff_rank(id_):
+            if id_ in eff:
+                return eff[id_]
+            if id_ in visiting:
+                return len(order)
+            visiting.add(id_)
+            best = rank.get(nodes[id_].get("milestone"), len(order))
+            for b in nodes[id_]["blocks"]:
+                if not_done(b):
+                    best = min(best, eff_rank(b))
+            visiting.discard(id_)
+            eff[id_] = best
+            return best
+
+        for n in nodes.values():
+            n["msRank"] = eff_rank(n["id"]) if not_done(n["id"]) else len(order)
+        for t in order + ([None] if any(not n.get("milestone") for n in nodes.values()) else []):
+            mem = [n for n in nodes.values() if n.get("milestone") == t and not n.get("container")]
+            nd = [n for n in mem if n["status"] != "done"]
+            milestones.append({"milestone": t, "due": ms_due.get(t), "total": len(mem),
+                               "done": len(mem) - len(nd), "inProgress": sum(n["status"] == "in-progress" for n in mem),
+                               "ready": sum(1 for n in mem if n["ready"]),
+                               "blocked": sum(1 for n in mem if n["status"] == "todo" and not n["ready"]),
+                               "chain": max((n["depth"] for n in nd), default=0)})
+
     cycles = find_cycles({n["id"]: n["dependsOn"] for n in nodes.values()})
 
     # Lanes and queues.
     lanes = sorted({n["lane"] for n in nodes.values() if n["lane"]})
     active = [l.zfill(2) for l in (active_lanes or lanes)]
     ready = sorted((n for n in nodes.values() if n["ready"]), key=score_key)
+    if cfg.get("focus_milestone"):  # that milestone's tickets plus everything they transitively wait on
+        focus, stack = set(), [n["id"] for n in nodes.values()
+                                if milestone_matches(n.get("milestone"), cfg["focus_milestone"])]
+        while stack:
+            x = stack.pop()
+            if x not in focus:
+                focus.add(x)
+                stack.extend(nodes[x]["dependsOn"])
+        ready = [n for n in ready if n["id"] in focus]
+    else:
+        focus = None
     queues = {l: [n["id"] for n in ready if n["lane"] == l] for l in active}
     assignments = thread_lanes(active, [{"id": n["id"], "lane": n["lane"]} for n in ready])
     active_set = set(active)
@@ -632,6 +720,8 @@ def build_queue(stories, issues, prs, adrs, active_lanes=None, cfg=None):
         "unparsed": sorted(({"dep": d, "ids": sorted(ids)} for d, ids in unparsed.items()),
                            key=lambda u: _locale(u["dep"])),
         "cycles": cycles, "problems": problems,
+        **({"milestones": milestones} if cfg["milestones"] else {}),
+        **({"focus": sorted(focus)} if focus is not None else {}),
     }
 
 
@@ -692,6 +782,14 @@ def render_report(r, queue_length=10, blocker_count=15):
         state = ("ready" if n["ready"] else "in progress" if n["status"] == "in-progress"
                  else f"blocked on {', '.join(u['dep'] for u in n['unmet'])}")
         out.append(f"{i + 1}. {_item_line(n)} · lane {n['lane'] or '—'} · {state}")
+
+    if r.get("milestones"):
+        out += ["", "## Milestones (earliest first; blockers of an earlier milestone rank with it)", "",
+                "| Milestone | Due | Done | In progress | Ready | Blocked | Longest chain left |",
+                "|---|---|---:|---:|---:|---:|---:|"]
+        for m in r["milestones"]:
+            out.append(f"| {m['milestone'] or '(none)'} | {(m['due'] or '—')[:10]} | {m['done']}/{m['total']} | "
+                       f"{m['inProgress']} | {m['ready']} | {m['blocked']} | {m['chain']} |")
 
     out += ["", "## Blocked, by what blocks them", ""]
     if not r["blockedBy"]:
