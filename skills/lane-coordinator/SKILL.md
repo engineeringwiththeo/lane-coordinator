@@ -1,6 +1,6 @@
 ---
 name: lane-coordinator
-description: Run a repo as an Opus coordinator with parallel worker sessions ("lanes"), one ticket each. It tracks milestone → epic → story → task as GitHub issues with a status workflow (todo, in-progress, testing, blocked, merging, merged, staging, deployed, done) and per-session claim tags (<project>-NN). It schedules lanes from a dependency DAG of the backlog, picks each lane's model from a routing table, has the coordinator review, merge and close every ticket, ships periodic feature releases (integration → main, a release-candidate tag for staging, the same commit tagged for production), logs a cost/quality ledger and tunes routing each sprint. Use when coordinating multiple worker sessions on a backlog; creating epics, stories or tasks; claiming, releasing or moving a ticket's status; cleaning up a worktree after merge; planning, promoting or tagging a release for staging or production; deciding what each lane works on next or which model a ticket gets; finding blockers, stale claims or dependency cycles; logging agent metrics; or running the end-of-sprint routing review. Also use to set this up in a new project ("set up lanes", "add the coordinator pattern here").
+description: Run a repo as an Opus coordinator with parallel worker sessions ("lanes"), one ticket each. It tracks milestone → epic → story → task as GitHub issues with a status workflow (todo, in-progress, testing, blocked, merging, merged, staging, deployed, done) and per-session claim tags (<project>-NN). It schedules lanes from a dependency DAG of the backlog, picks each lane's model from a routing table, has the coordinator review, merge and close every ticket, keeps architecture decisions in ADRs that gate work, briefs and review, ships periodic feature releases (integration → main, a release-candidate tag for staging, the same commit tagged for production), logs a cost/quality ledger and tunes routing each sprint. Use when coordinating multiple worker sessions on a backlog; creating epics, stories or tasks; claiming, releasing or moving a ticket's status; cleaning up a worktree after merge; writing, accepting or superseding an ADR, or checking a PR against ADRs; planning, promoting or tagging a release for staging or production; deciding what each lane works on next or which model a ticket gets; finding blockers, stale claims or dependency cycles; logging agent metrics; or running the end-of-sprint routing review. Also use to set this up in a new project ("set up lanes", "add the coordinator pattern here").
 ---
 
 # Lane coordinator
@@ -16,7 +16,7 @@ STATE=~/.claude/projects/<slug>/metrics     # slug = absolute repo path with eve
 ~/.claude/projects/<slug>/memory/review-patterns.md   recurring PR defects (linked from every brief)
 ```
 
-Find STATE with `python3 -I ${CLAUDE_SKILL_DIR}/scripts/state_dir.py`. If it prints `missing`, run **Setup** first. Below, `TR`, `WQ` and `REL` mean `python3 -I ${CLAUDE_SKILL_DIR}/scripts/` + `tracker.py`, `work_queue.py` and `release.py`.
+Find STATE with `python3 -I ${CLAUDE_SKILL_DIR}/scripts/state_dir.py`. If it prints `missing`, run **Setup** first. Below, `TR`, `WQ`, `ADR` and `REL` mean `python3 -I ${CLAUDE_SKILL_DIR}/scripts/` + `tracker.py`, `work_queue.py`, `adr.py` and `release.py`.
 
 ## Setup (once per project)
 
@@ -27,7 +27,7 @@ Find STATE with `python3 -I ${CLAUDE_SKILL_DIR}/scripts/state_dir.py`. If it pri
    - **`tracker`:** project name, and whether milestones are GitHub milestones or labels. See `references/tracker.md`.
    - **`release`:** main branch, version bump, and optional deploy hooks for staging and production. See `references/release.md`.
    - the risky stacks this codebase has.
-3. Run `TR setup` to create the `status:*`, `type:*` and `<project>-NN` labels. Then run `WQ` once and fix any parse problems it reports.
+3. Run `TR setup` to create the `status:*`, `type:*` and `<project>-NN` labels, and `ADR init` to create `docs/adr` and its template (`adr.dir`). Then run `WQ` once and fix any parse problems it reports.
 4. Add a pointer to `MEMORY.md`: `- [Review patterns](review-patterns.md) — recurring PR defects; link from every worker brief`.
 
 ## Tickets and workflow
@@ -55,12 +55,13 @@ todo → in-progress → testing → merging ──(coordinator)──→ merged
 ## Worker session protocol (put this in every brief)
 
 1. **Claim:** `TR next` claims the best ready ticket for your lane from the DAG, borrowing if your lane is empty. Or the coordinator names one: `TR claim N`. Your session number comes from the worktree folder (`<project>-NN`) or `$LANE_SESSION`. You hold one active ticket at a time.
-2. **Branch:** branch from `origin/<integration_branch>`. Before opening a PR, check every item in `<memory>/review-patterns.md`.
-3. **Test:** `TR status N testing` while running the full test suites. If they fail, go back with `TR status N in-progress --note "…"`.
-4. **Blocked:** `TR status N blocked --note "waits on #M"`. Then tell the coordinator.
-5. **PR ready:** `TR status N merging --pr P`, then report `#P ready (head <sha>)`. **Never merge.**
-6. **After the coordinator sets merged:** `TR cleanup` deletes the merged branch and resets this worktree to `origin/<integration_branch>`. Add `--remove` for a per-ticket worktree. It refuses on uncommitted work or an unmerged branch. Then `TR next`.
-7. **Helpers:** use helper sub-agents on the `helper` model for search, test runs and log reading.
+2. **Read the ADRs** your brief lists (`ADR for-ticket N`) and follow their Decision sections. If the work needs an architectural decision that no accepted ADR covers, don't decide it in code: `TR status N blocked --note "needs a decision: …"`, and tell the coordinator. You may draft the ADR as Proposed in your PR. **Never change an ADR's Status line.**
+3. **Branch:** branch from `origin/<integration_branch>`. Before opening a PR, check every item in `<memory>/review-patterns.md`.
+4. **Test:** `TR status N testing` while running the full test suites. If they fail, go back with `TR status N in-progress --note "…"`.
+5. **Blocked:** `TR status N blocked --note "waits on #M"`. Then tell the coordinator.
+6. **PR ready:** `TR status N merging --pr P`, then report `#P ready (head <sha>)`. **Never merge.**
+7. **After the coordinator sets merged:** `TR cleanup` deletes the merged branch and resets this worktree to `origin/<integration_branch>`. Add `--remove` for a per-ticket worktree. It refuses on uncommitted work or an unmerged branch. Then `TR next`.
+8. **Helpers:** use helper sub-agents on the `helper` model for search, test runs and log reading.
 
 ## The coordinator loop
 
@@ -70,21 +71,26 @@ todo → in-progress → testing → merging ──(coordinator)──→ merged
 - **Unparsed dependencies:** these are treated as satisfied, so check each one by hand.
 - **Cycles** and **parse problems:** fix them in the backlog.
 
-**2. Check the board.** `TR board [--milestone M]` shows:
+**2. Chase decisions.** Run `ADR pending`. It lists Proposed ADRs ranked by how much work waits on them, directly and downstream. Take the top ones to the owner.
+- **Decided:** `ADR status NNNN accepted --note "…"` (coordinator only), then commit it on the integration branch. The waiting tickets become ready on the next plan.
+- **A story needs a decision that isn't written yet:** `ADR new "Title" [--issue N]`, and give the story `--depends ADR-NNNN`.
+- **A decision changes:** write a new ADR and supersede the old one (`ADR status OLD superseded --by NEW`). Never rewrite an accepted ADR.
+
+**3. Check the board.** `TR board [--milestone M]` shows:
 - status counts per milestone and epic;
 - every live claim;
 - **stale claims** (no update within `tracker.stale_hours`): chase that session, or `TR release N`;
 - **needs fixing:** two status labels, two claimants, `in-progress` with no session, closed-but-active.
 
-**3. Route.** Work out the ticket type `size:kind:stack` (see `references/metrics.md`), then run `python3 -I ${CLAUDE_SKILL_DIR}/scripts/route.py <type> [--issue N]`. Pass the model it prints as `model` when you start the session's agent. It applies overrides, stack floors, size defaults and the 10% exploration sample.
+**4. Route.** Work out the ticket type `size:kind:stack` (see `references/metrics.md`), then run `python3 -I ${CLAUDE_SKILL_DIR}/scripts/route.py <type> [--issue N]`. Pass the model it prints as `model` when you start the session's agent. It applies overrides, stack floors, size defaults and the 10% exploration sample. In the brief, include the worker session protocol above and the output of `ADR for-ticket N` as required reading. A ticket that names a non-accepted ADR shouldn't be claimed; the planner keeps it blocked.
 
-**4. Review and merge yourself.** A CI-watcher agent (`ci_watcher` model) watches CI and reports `#N ready (head <sha>)`. It never merges. You review that head:
+**5. Review and merge yourself.** A CI-watcher agent (`ci_watcher` model) watches CI and reports `#N ready (head <sha>)`. It never merges. You review that head. First run `ADR check --pr P` (add `--coordinator` for your own decision PRs). It fails when the PR relies on a missing or non-accepted ADR, or changes an ADR's status. Then check the diff against the Decision section of each ADR it follows:
 - **Defect:** send it back with `TR status N in-progress --note "…"` (or `testing`), and count a review round.
 - **Clean:** merge it (`gh pr merge`), then `TR --session 00 status N merged --pr P`. That releases the session's claim. The session then runs `TR cleanup`.
 
 Sub-agent merges get flagged as "Merge Without Review". Known pins and infra flakes don't count as review rounds.
 
-**5. Release** (periodically, at the owner's cadence; see `references/release.md`):
+**6. Release** (periodically, at the owner's cadence; see `references/release.md`):
 1. **Plan:** `REL plan` shows the next version and the merged tickets.
 2. **Promote:** `REL promote` opens the "Release vX.Y.Z" PR from integration to main.
 3. **Merge:** review it and merge with a **merge commit** (`gh pr merge N --merge`, never squash).
@@ -93,13 +99,13 @@ Sub-agent merges get flagged as "Merge Without Review". Known pins and infra fla
 6. **Production:** `REL prod` tags that same commit `vX.Y.Z` and moves the tickets to deployed.
 7. **Check:** `REL status` shows what's in each environment.
 
-**6. Close.** You close issues; sessions never do. After reviewing a shipped ticket, run `TR status N done --note "…"`, or `REL prod --done` once the owner has signed off on the whole release.
+**7. Close.** You close issues; sessions never do. After reviewing a shipped ticket, run `TR status N done --note "…"`, or `REL prod --done` once the owner has signed off on the whole release.
 - **No release flow:** go straight from merged to done.
 - **Parts:** a story whose PR title says "part A" or similar isn't done until its last part merges.
 
-**7. Log.** When a session finishes a ticket, append a `session` row. When its PR merges, append a `ticket` row (schemas in `references/metrics.md`). For a session's cost, run `python3 -I ${CLAUDE_SKILL_DIR}/scripts/usage.py <transcript .jsonl> [--since --until]`.
+**8. Log.** When a session finishes a ticket, append a `session` row. When its PR merges, append a `ticket` row (schemas in `references/metrics.md`). For a session's cost, run `python3 -I ${CLAUDE_SKILL_DIR}/scripts/usage.py <transcript .jsonl> [--since --until]`.
 
-**8. Learn.** If a review comment comes up a second time, add it to `review-patterns.md` with the PR numbers.
+**9. Learn.** If a review comment comes up a second time, add it to `review-patterns.md` with the PR numbers. If it is really an architectural rule, write it as an ADR instead.
 
 ## Sprint end (Sunday)
 

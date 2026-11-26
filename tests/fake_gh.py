@@ -72,6 +72,9 @@ class FakeGitHub:
     def pr(self, n):
         return dict(self.prs[n])
 
+    def pr_files(self, n):
+        return list(self.prs[n].get("files", []))
+
     def open_pr(self, head, base):
         return next((n for n, p in self.prs.items() if isinstance(p, dict) and p["state"] == "open"
                      and p["head"] == head and p["base"] == base), None)

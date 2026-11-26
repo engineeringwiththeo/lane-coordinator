@@ -84,6 +84,10 @@ class GitHub:
                 "merged": bool(p.get("merged_at")), "merge_commit_sha": p.get("merge_commit_sha"),
                 "base": p["base"]["ref"], "head": p["head"]["ref"]}
 
+    def pr_files(self, n):
+        return [{"filename": f["filename"], "patch": f.get("patch") or ""}
+                for f in self.api("GET", self._r(f"/pulls/{n}/files?per_page=100"), paginate=True)]
+
     def open_pr(self, head, base):
         owner = self.repo.split("/")[0]
         found = self.api("GET", self._r(f"/pulls?state=open&head={owner}:{head}&base={base}"))

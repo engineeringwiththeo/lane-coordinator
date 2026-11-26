@@ -135,7 +135,9 @@ def compute(repo=None, lanes=None, data_path=None, save_path=None, data=None, fo
     else:
         stories, problems = dag.stories_from_issues(data["issues"], labels_cfg), []
 
-    r = dag.build_queue(stories, data["issues"], data["prs"], read_adrs(root, qc["adr_dir"]), lanes, labels_cfg)
+    adr_rel = qc["adr_dir"] or (cfg.get("adr") or {}).get("dir") or "docs/adr"
+    adr_rel = adr_rel if os.path.isdir(os.path.join(root, adr_rel)) else None
+    r = dag.build_queue(stories, data["issues"], data["prs"], read_adrs(root, adr_rel), lanes, labels_cfg)
     r["problems"][:0] = problems
     return r, data
 

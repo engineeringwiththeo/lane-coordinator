@@ -40,5 +40,8 @@
     "tag_prefix": "v",
     "staging_cmd": null,
     "prod_cmd": null
+  },
+  "adr": {
+    "dir": "docs/adr"
   }
 }
