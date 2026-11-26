@@ -1,6 +1,6 @@
 ---
 name: lane-coordinator
-description: Run a repo as an Opus coordinator with parallel worker sessions ("lanes"), one ticket each. It tracks milestone → epic → story → task as GitHub issues with a status workflow (todo, in-progress, testing, blocked, merging, merged, deployed, done) and per-session claim tags (<project>-NN). It schedules lanes from a dependency DAG of the backlog, picks each lane's model from a routing table, has the coordinator review, merge and close every ticket, logs a cost/quality ledger and tunes routing each sprint. Use when coordinating multiple worker sessions on a backlog; creating epics, stories or tasks; claiming, releasing or moving a ticket's status; cleaning up a worktree after merge; deciding what each lane works on next or which model a ticket gets; finding blockers, stale claims or dependency cycles; logging agent metrics; or running the end-of-sprint routing review. Also use to set this up in a new project ("set up lanes", "add the coordinator pattern here").
+description: Run a repo as an Opus coordinator with parallel worker sessions ("lanes"), one ticket each. It tracks milestone → epic → story → task as GitHub issues with a status workflow (todo, in-progress, testing, blocked, merging, merged, staging, deployed, done) and per-session claim tags (<project>-NN). It schedules lanes from a dependency DAG of the backlog, picks each lane's model from a routing table, has the coordinator review, merge and close every ticket, ships periodic feature releases (integration → main, a release-candidate tag for staging, the same commit tagged for production), logs a cost/quality ledger and tunes routing each sprint. Use when coordinating multiple worker sessions on a backlog; creating epics, stories or tasks; claiming, releasing or moving a ticket's status; cleaning up a worktree after merge; planning, promoting or tagging a release for staging or production; deciding what each lane works on next or which model a ticket gets; finding blockers, stale claims or dependency cycles; logging agent metrics; or running the end-of-sprint routing review. Also use to set this up in a new project ("set up lanes", "add the coordinator pattern here").
 ---
 
 # Lane coordinator
@@ -9,14 +9,14 @@ One **coordinator** session (session 00) plans, briefs, reviews, merges and clos
 
 ```
 STATE=~/.claude/projects/<slug>/metrics     # slug = absolute repo path with every non-alphanumeric char → "-"
-  config.json        integration branch, queue (work source), tracker (labels, milestones), risk stacks
+  config.json        integration branch, queue (work source), tracker (labels, milestones), release, risk stacks
   routing.json       live model table
   ledger.jsonl       one row per worker session and per merged ticket
   sprints/<YYYY-Www>.md
 ~/.claude/projects/<slug>/memory/review-patterns.md   recurring PR defects (linked from every brief)
 ```
 
-Find STATE with `python3 -I ${CLAUDE_SKILL_DIR}/scripts/state_dir.py`. If it prints `missing`, run **Setup** first. Below, `TR` means `python3 -I ${CLAUDE_SKILL_DIR}/scripts/tracker.py` and `WQ` means `python3 -I ${CLAUDE_SKILL_DIR}/scripts/work_queue.py`.
+Find STATE with `python3 -I ${CLAUDE_SKILL_DIR}/scripts/state_dir.py`. If it prints `missing`, run **Setup** first. Below, `TR`, `WQ` and `REL` mean `python3 -I ${CLAUDE_SKILL_DIR}/scripts/` + `tracker.py`, `work_queue.py` and `release.py`.
 
 ## Setup (once per project)
 
@@ -25,6 +25,7 @@ Find STATE with `python3 -I ${CLAUDE_SKILL_DIR}/scripts/state_dir.py`. If it pri
    - **`integration_branch`**
    - **`queue`:** where stories and their dependencies live. See `references/queue.md`.
    - **`tracker`:** project name, and whether milestones are GitHub milestones or labels. See `references/tracker.md`.
+   - **`release`:** main branch, version bump, and optional deploy hooks for staging and production. See `references/release.md`.
    - the risky stacks this codebase has.
 3. Run `TR setup` to create the `status:*`, `type:*` and `<project>-NN` labels. Then run `WQ` once and fix any parse problems it reports.
 4. Add a pointer to `MEMORY.md`: `- [Review patterns](review-patterns.md) — recurring PR defects; link from every worker brief`.
@@ -42,13 +43,13 @@ Create them with `TR epic`, `TR story` and `TR task`. A child copies its parent'
 **Workflow** (one `status:*` label per issue; `TR status N <state>` checks each move, `--force` overrides):
 
 ```
-todo → in-progress → testing → merging ──(coordinator)──→ merged → deployed → done (issue closed)
-            ↑   ↘ blocked (needs --note) ↙   ↑                  └──────────────→ done
+todo → in-progress → testing → merging ──(coordinator)──→ merged → staging → deployed → done (issue closed)
+            ↑   ↘ blocked (needs --note) ↙   ↑               (rc tag)   (prod tag)
             └──────── sent back ─────────────┘          cancelled (coordinator; closes as not planned)
 ```
 
 - **Sessions** move their own ticket from todo up to merging.
-- **Only the coordinator** sets merged, deployed, done and cancelled.
+- **Only the coordinator** sets merged, staging, deployed, done and cancelled. `REL` makes the staging and deployed moves.
 - **`lane:NN`** is the queue a ticket is planned for. **`<project>-NN`** (for example `myhoa2-03`) is the session that has claimed it right now.
 
 ## Worker session protocol (put this in every brief)
@@ -83,13 +84,22 @@ todo → in-progress → testing → merging ──(coordinator)──→ merged
 
 Sub-agent merges get flagged as "Merge Without Review". Known pins and infra flakes don't count as review rounds.
 
-**5. Close.** You close issues; sessions never do. When a promotion PR ships the integration branch, run `TR deployed --from-pr <promotion PR>`. That moves every merged ticket it references to deployed. After reviewing the result, run `TR status N done --note "…"`, which closes the issue.
-- **No deploy stage:** go straight from merged to done.
+**5. Release** (periodically, at the owner's cadence; see `references/release.md`):
+1. **Plan:** `REL plan` shows the next version and the merged tickets.
+2. **Promote:** `REL promote` opens the "Release vX.Y.Z" PR from integration to main.
+3. **Merge:** review it and merge with a **merge commit** (`gh pr merge N --merge`, never squash).
+4. **Staging:** `REL staging --pr N` tags `vX.Y.Z-rc.K`, publishes a prerelease and moves its tickets to staging.
+5. **Verify staging.** On failure, fix forward and promote again, which gives the next rc.
+6. **Production:** `REL prod` tags that same commit `vX.Y.Z` and moves the tickets to deployed.
+7. **Check:** `REL status` shows what's in each environment.
+
+**6. Close.** You close issues; sessions never do. After reviewing a shipped ticket, run `TR status N done --note "…"`, or `REL prod --done` once the owner has signed off on the whole release.
+- **No release flow:** go straight from merged to done.
 - **Parts:** a story whose PR title says "part A" or similar isn't done until its last part merges.
 
-**6. Log.** When a session finishes a ticket, append a `session` row. When its PR merges, append a `ticket` row (schemas in `references/metrics.md`). For a session's cost, run `python3 -I ${CLAUDE_SKILL_DIR}/scripts/usage.py <transcript .jsonl> [--since --until]`.
+**7. Log.** When a session finishes a ticket, append a `session` row. When its PR merges, append a `ticket` row (schemas in `references/metrics.md`). For a session's cost, run `python3 -I ${CLAUDE_SKILL_DIR}/scripts/usage.py <transcript .jsonl> [--since --until]`.
 
-**7. Learn.** If a review comment comes up a second time, add it to `review-patterns.md` with the PR numbers.
+**8. Learn.** If a review comment comes up a second time, add it to `review-patterns.md` with the PR numbers.
 
 ## Sprint end (Sunday)
 

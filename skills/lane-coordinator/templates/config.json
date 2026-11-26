@@ -1,5 +1,5 @@
 {
-  "integration_branch": "main",
+  "integration_branch": "integration",
   "queue_cmd": null,
   "stack_order": [
     "sec",
@@ -32,5 +32,12 @@
     "stale_hours": 24,
     "sessions": 12,
     "status_prefix": "status:"
+  },
+  "release": {
+    "main_branch": "main",
+    "bump": "minor",
+    "tag_prefix": "v",
+    "staging_cmd": null,
+    "prod_cmd": null
   }
 }

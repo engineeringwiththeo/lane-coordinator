@@ -30,7 +30,7 @@ DEFAULTS = {
     "session_label_re": None,  # e.g. ^myhoa2-(\d+)$ : set by work_queue.py from the tracker config
 }
 
-DONE_STATUSES = {"merged", "deployed", "done", "cancelled"}
+DONE_STATUSES = {"merged", "staging", "deployed", "done", "cancelled"}
 ACTIVE_STATUSES = {"in-progress", "testing", "merging"}
 
 

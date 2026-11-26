@@ -12,6 +12,7 @@ class FakeGitHub:
     def __init__(self):
         self._issues, self._comments, self._labels, self._milestones, self.subs = {}, {}, set(), {}, []
         self.prs = {}
+        self._tags, self.releases, self.parents, self.ahead_by = {}, [], {}, 0
         self._ids = itertools.count(1000)
         self.on_comment = None  # hook(n, comment) to simulate another session acting concurrently
 
@@ -65,7 +66,46 @@ class FakeGitHub:
         self.subs.append((parent, child_id))
 
     def pr_body(self, n):
-        return self.prs[n]
+        return self.prs[n]["body"] if isinstance(self.prs[n], dict) else self.prs[n]
+
+    # releases
+    def pr(self, n):
+        return dict(self.prs[n])
+
+    def open_pr(self, head, base):
+        return next((n for n, p in self.prs.items() if isinstance(p, dict) and p["state"] == "open"
+                     and p["head"] == head and p["base"] == base), None)
+
+    def create_pr(self, title, body, head, base):
+        n = max([*self.prs, *self._issues, 0]) + 1
+        self.prs[n] = {"number": n, "title": title, "body": body, "state": "open", "merged": False,
+                       "merge_commit_sha": None, "base": base, "head": head}
+        return n
+
+    def update_pr(self, n, title, body):
+        self.prs[n].update(title=title, body=body)
+
+    def merge_pr(self, n, sha, parents=2):
+        self.prs[n].update(state="closed", merged=True, merge_commit_sha=sha)
+        self.parents[sha] = parents
+
+    def compare(self, base, head):
+        return {"ahead_by": self.ahead_by, "commits": ["feat: x"] * self.ahead_by, "url": None}
+
+    def commit_parents(self, sha):
+        return self.parents.get(sha, 2)
+
+    def tags(self):
+        return list(self._tags)
+
+    def tag_sha(self, tag):
+        return self._tags[tag]
+
+    def create_release(self, tag, sha, title, notes, prerelease, latest):
+        self._tags[tag] = sha
+        self.releases.append({"tag": tag, "sha": sha, "title": title, "notes": notes, "prerelease": prerelease,
+                              "latest": latest})
+        return f"https://example.test/releases/{tag}"
 
     def labels(self):
         return set(self._labels)

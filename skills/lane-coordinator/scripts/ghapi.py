@@ -77,6 +77,47 @@ class GitHub:
     def pr_body(self, n):
         return self.api("GET", self._r(f"/pulls/{n}")).get("body") or ""
 
+    # ─── pull requests, commits, tags and releases ───
+    def pr(self, n):
+        p = self.api("GET", self._r(f"/pulls/{n}"))
+        return {"number": p["number"], "title": p["title"], "body": p.get("body") or "", "state": p["state"],
+                "merged": bool(p.get("merged_at")), "merge_commit_sha": p.get("merge_commit_sha"),
+                "base": p["base"]["ref"], "head": p["head"]["ref"]}
+
+    def open_pr(self, head, base):
+        owner = self.repo.split("/")[0]
+        found = self.api("GET", self._r(f"/pulls?state=open&head={owner}:{head}&base={base}"))
+        return found[0]["number"] if found else None
+
+    def create_pr(self, title, body, head, base):
+        return self.api("POST", self._r("/pulls"), {"title": title, "body": body, "head": head, "base": base})["number"]
+
+    def update_pr(self, n, title, body):
+        self.api("PATCH", self._r(f"/pulls/{n}"), {"title": title, "body": body})
+
+    def compare(self, base, head):
+        c = self.api("GET", self._r(f"/compare/{base}...{head}"))
+        return {"ahead_by": c["ahead_by"], "commits": [x["commit"]["message"].split("\n")[0] for x in c["commits"]],
+                "url": c.get("html_url")}
+
+    def commit_parents(self, sha):
+        return len(self.api("GET", self._r(f"/commits/{sha}"))["parents"])
+
+    def tags(self):
+        return [t["name"] for t in self.api("GET", self._r("/tags?per_page=100"), paginate=True)]
+
+    def tag_sha(self, tag):
+        obj = self.api("GET", self._r(f"/git/ref/tags/{urllib.parse.quote(tag)}"))["object"]
+        if obj["type"] == "tag":  # annotated tag → its commit
+            obj = self.api("GET", self._r(f"/git/tags/{obj['sha']}"))["object"]
+        return obj["sha"]
+
+    def create_release(self, tag, sha, title, notes, prerelease, latest):
+        r = self.api("POST", self._r("/releases"), {"tag_name": tag, "target_commitish": sha, "name": title,
+                                                     "body": notes, "prerelease": prerelease,
+                                                     "make_latest": "true" if latest else "false"})
+        return r.get("html_url")
+
     # ─── labels and milestones ───
     def labels(self):
         return {l["name"] for l in self.api("GET", self._r("/labels?per_page=100"), paginate=True)}

@@ -20,9 +20,10 @@ Usage: python3 -I tracker.py [--repo PATH] [--session NN] <command> ...
   cleanup [--worktree PATH] [--remove] [--force]   after your ticket merged: delete its branch, reset the worktree
                                                     to origin/<integration> (or remove it with --remove)
 
-Workflow: todo → in-progress → testing → merging → merged → deployed → done, plus blocked and cancelled.
+Workflow: todo → in-progress → testing → merging → merged → staging → deployed → done, plus blocked and
+cancelled. staging = on a release candidate in staging; deployed = in production (release.py moves both).
 Sessions move their own tickets up to merging (ready for review). Only the coordinator session
-(tracker.coordinator_session, default 00) sets merged, deployed, done and cancelled; done closes the issue.
+(tracker.coordinator_session, default 00) sets merged, staging, deployed, done and cancelled; done closes the issue.
 A session holds one active ticket at a time.
 The session is --session, else $LANE_SESSION, else the worktree folder's "-NN" suffix (myhoa2-03 → 03), else 00.
 """
@@ -34,23 +35,25 @@ import dag
 from common import load_json, repo_root, state_dir
 from ghapi import GitHub, GhError, detect_repo
 
-STATUSES = ["todo", "in-progress", "testing", "blocked", "merging", "merged", "deployed", "done", "cancelled"]
+STATUSES = ["todo", "in-progress", "testing", "blocked", "merging", "merged", "staging", "deployed", "done",
+            "cancelled"]
 TRANSITIONS = {
     "todo": {"in-progress", "blocked", "cancelled"},
     "in-progress": {"todo", "testing", "blocked", "merging", "cancelled"},
     "testing": {"in-progress", "blocked", "merging", "todo", "cancelled"},
     "blocked": {"todo", "in-progress", "testing", "cancelled"},
     "merging": {"in-progress", "testing", "blocked", "merged", "cancelled"},
-    "merged": {"deployed", "done", "in-progress"},   # back to in-progress after a revert
-    "deployed": {"done", "in-progress"},
+    "merged": {"staging", "deployed", "done", "in-progress"},  # back to in-progress after a revert
+    "staging": {"deployed", "done", "in-progress"},           # on a release candidate in staging
+    "deployed": {"done", "in-progress"},                      # in production
     "done": {"in-progress"},                          # reopened
     "cancelled": {"todo"},
 }
 HELD = {"in-progress", "testing", "blocked", "merging"}  # states where the claiming session keeps its label
-COORDINATOR_ONLY = {"merged", "deployed", "done", "cancelled"}  # the coordinator merges, reviews and closes
-DONE_LIKE = {"merged", "deployed", "done", "cancelled"}
-RANK = {"merged": 1, "deployed": 2, "done": 3}
-COLORS = {"todo": "d4d4d8", "in-progress": "3b82f6", "testing": "f59e0b", "blocked": "dc2626", "merging": "a855f7", "merged": "16a34a",
+COORDINATOR_ONLY = {"merged", "staging", "deployed", "done", "cancelled"}  # the coordinator merges, reviews and closes
+DONE_LIKE = {"merged", "staging", "deployed", "done", "cancelled"}
+RANK = {"merged": 1, "staging": 2, "deployed": 3, "done": 4}
+COLORS = {"todo": "d4d4d8", "in-progress": "3b82f6", "testing": "f59e0b", "blocked": "dc2626", "merging": "a855f7", "merged": "16a34a", "staging": "06b6d4",
           "deployed": "0d9488", "done": "15803d", "cancelled": "71717a"}
 TYPES = {"type:milestone": "fbbf24", "type:epic": "7c3aed", "type:story": "2563eb", "type:task": "64748b"}
 
@@ -325,7 +328,7 @@ def board(gh, t, milestone=None, epic=None, now=None):
             why.append(f"{st} with no session")
         if st in HELD and i["state"] != "open":
             why.append(f"closed but {st}")
-        if st in ("todo", "merged", "deployed", "done", "cancelled") and hs:
+        if (st == "todo" or st in DONE_LIKE) and hs:
             why.append(f"{st} but still claimed")
         if why:
             odd.append({"issue": i["number"], "title": i["title"], "why": "; ".join(why)})
@@ -513,7 +516,7 @@ def main(argv=None):
         for n in nums:
             try:
                 i = gh.issue(n)
-                if status_of(t, i) == "merged":
+                if status_of(t, i) in ("merged", "staging"):
                     res.append(set_status(gh, t, n, "deployed", session, pr=a.from_pr))
                 else:
                     res.append({"issue": n, "skipped": status_of(t, i)})

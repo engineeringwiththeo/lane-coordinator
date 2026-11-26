@@ -9,9 +9,9 @@ Tickets are GitHub issues, and the state of every ticket lives in its labels, so
 | `project` | repo folder name | prefix of the session tags |
 | `repo` | `gh repo view` | `owner/name` |
 | `session_label` | `{project}-{session}` | session tag, e.g. `myhoa2-03` |
-| `coordinator_session` | `00` | the only session that may set merged / deployed / done / cancelled |
+| `coordinator_session` | `00` | the only session that may set merged / staging / deployed / done / cancelled |
 | `milestone_mode` | `github` | `github` = native milestones; `label` = `milestone:<name>` labels |
-| `close_on` | `done` | first state that closes the issue: `merged`, `deployed` or `done` |
+| `close_on` | `done` | first state that closes the issue: `merged`, `staging`, `deployed` or `done` |
 | `stale_hours` | `24` | a claim with no issue update for this long shows as stale on the board |
 | `sessions` | `12` | how many `<project>-NN` labels `setup` creates (00 to N) |
 | `status_prefix` | `status:` | prefix of the status labels |
@@ -28,6 +28,7 @@ Tickets are GitHub issues, and the state of every ticket lives in its labels, so
 | `<project>-NN` | the claiming session: present only while the ticket is in-progress, testing, blocked or merging |
 | `status:<state>` | exactly one per issue |
 | `size:S\|M\|L`, `priority:pN` | scheduling inputs |
+| `release:vX.Y.Z` | the release a ticket shipped in (set by `release.py staging`) |
 
 The body of each story or task carries `Parent: #N` and `Depends on: …` lines. The DAG reads them, and they also link the issue as a GitHub sub-issue.
 
@@ -41,14 +42,15 @@ The body of each story or task carries `Parent: #N` and `Depends on: …` lines.
 | blocked | session (`--note` required) | kept | open |
 | merging | session (`--pr`) | kept | open |
 | merged | coordinator | released | closed if `close_on` = merged |
-| deployed | coordinator (`deployed --from-pr`) | released | closed if `close_on` ≤ deployed |
+| staging | coordinator (`release.py staging`) | released | closed if `close_on` ≤ staging |
+| deployed | coordinator (`release.py prod`, or `tracker.py deployed`) | released | closed if `close_on` ≤ deployed |
 | done | coordinator, after review | released | closed |
 | cancelled | coordinator | released | closed as not planned |
 
 Allowed moves are defined in `TRANSITIONS` in `tracker.py`. A move outside them is refused unless you pass `--force`. An issue with no status label counts as todo while it is open, and done once it is closed.
 
 How the DAG reads these states:
-- merged, deployed, done and cancelled count as **done**;
+- merged, staging, deployed, done and cancelled count as **done**;
 - in-progress, testing and merging, or any claim, count as **in progress**;
 - blocked means **not ready**.
 
