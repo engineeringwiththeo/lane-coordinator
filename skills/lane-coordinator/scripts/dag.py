@@ -246,6 +246,17 @@ def stories_from_issues(issues, cfg=None):
         if pm:
             story["parent"] = int(pm.group(1))
         stories.append(story)
+    # A story waits on whatever its epic issue waits on (`Depends on:` in the epic's body, e.g. from the roadmap).
+    epic_deps = {}
+    for i in issues:
+        if cfg["epic_issue_label"] in i["labels"]:
+            key = next((_epic_key(l[len(cfg["epic_label_prefix"]):]) for l in i["labels"]
+                        if l.startswith(cfg["epic_label_prefix"])), None)
+            if key is not None:
+                epic_deps[key] = [d for m in _DEP_LINE.finditer(i.get("body") or "") for d in parse_deps(m.group(1))]
+    for s in stories:
+        raws = {d["raw"] for d in s["deps"]}
+        s["deps"] += [d for d in epic_deps.get(s["epic"], []) if d["raw"] not in raws]
     # A task waits on whatever its parent story waits on.
     by_num = {s["issue"]: s for s in stories}
     for s in stories:
@@ -441,8 +452,8 @@ def build_queue(stories, issues, prs, adrs, active_lanes=None, cfg=None):
         claimed = [l for l in labels if sess_re and sess_re.match(l)]
         if tracked in DONE_STATUSES:
             work["status"] = "done"
-        elif work["status"] != "done" and (tracked in ACTIVE_STATUSES or claimed):
-            work["status"] = "in-progress"
+        elif work["status"] != "done" and tracked != "blocked" and (tracked in ACTIVE_STATUSES or claimed):
+            work["status"] = "in-progress"  # a claimed ticket labelled blocked stays blocked (and keeps its 🔒)
         lane = lane_of(issue["labels"]) if issue else None
         plabel = next((m.group(1) for l in (issue["labels"] if issue else []) if (m := prio_re.match(l))), None)
         nodes[s["id"]] = {**s,
@@ -461,7 +472,7 @@ def build_queue(stories, issues, prs, adrs, active_lanes=None, cfg=None):
             title, due = milestone_of(issue_map.get(n["issue"]) if n["issue"] is not None else None)
             n["milestone"] = title
             if title and (due or title not in ms_due):
-                ms_due[title] = due
+                ms_due[title] = due or (cfg.get("milestone_due") or {}).get(title)
 
     # Containers: a story with tasks is never queued itself; it waits on its tasks and is done when they are.
     children = {}
@@ -503,7 +514,9 @@ def build_queue(stories, issues, prs, adrs, active_lanes=None, cfg=None):
     def status_word(id_):
         d = nodes[id_]
         if d["status"] == "in-progress":
-            return f"in progress (#{', #'.join(str(x) for x in d['work']['openPrs'])})"
+            if d["work"]["openPrs"]:
+                return f"in progress (#{', #'.join(str(x) for x in d['work']['openPrs'])})"
+            return f"in progress ({', '.join(d['claimedBy'])})" if d.get("claimedBy") else "in progress"
         return "ready" if d["ready"] else "not done"
 
     def external_done(issue):

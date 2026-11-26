@@ -161,9 +161,12 @@ class Status(unittest.TestCase):
         self.assertEqual(m1["decisions"], [{"adr": "ADR-0001", "title": "Auth provider", "blocks": 2}])
         self.assertEqual(m1["epics"][0]["key"], "auth")
         self.assertEqual((m2["done"], m2["in_production"], m2["on_staging"]), (2, 1, 1))
-        self.assertEqual(m2["releases"], ["v1.0.0", "v1.1.0"])
+        self.assertEqual(m2["releases"], ["v1.0.0", "v1.1.0 (staging)"])
         self.assertEqual(m2["state"], "complete")
-        self.assertEqual(m1["state"], "on track")  # 2 left at 2/week, chain 2 → ~2 weeks, due 2027-01-31
+        self.assertEqual(m1["state"], "waiting on ADR-0001")  # nothing in M1 can move until the decision
+        adr.set_status(self.d, "1", "accepted")
+        _, s2 = self.run_status(ledger_rows=8)
+        self.assertEqual(s2["milestones"][0]["state"], "on track")  # 2 left at 2/week, chain 2, due 2027-01-31
         self.assertEqual(s["unplanned"], ["#99"])
         self.assertEqual(s["epics_off_roadmap"], ["misc"])
         page = rmod.render_status(s)
@@ -172,6 +175,7 @@ class Status(unittest.TestCase):
             self.assertIn(needle, page)
 
     def test_at_risk_and_no_data(self):
+        adr.set_status(self.d, "1", "accepted")
         _, s = self.run_status(ledger_rows=1, today=date(2027, 1, 20))  # 0.25/week: weeks to finish
         self.assertEqual(s["milestones"][0]["state"], "at risk")
         _, s = self.run_status(ledger_rows=0)

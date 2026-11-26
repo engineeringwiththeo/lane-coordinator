@@ -122,7 +122,9 @@ def compute(repo=None, lanes=None, data_path=None, save_path=None, data=None, fo
     if os.path.exists(rm_path):  # the roadmap's milestone order ranks work
         import roadmap
         with open(rm_path, encoding="utf-8") as fh:
-            labels_cfg["milestone_order"] = [m["title"] for m in roadmap.parse(fh.read())[0]]
+            planned = roadmap.parse(fh.read())[0]
+        labels_cfg["milestone_order"] = [m["title"] for m in planned]
+        labels_cfg["milestone_due"] = {m["title"]: m["due"] for m in planned if m["due"]}
     if focus:
         labels_cfg["focus_milestone"] = focus
         labels_cfg["milestones"] = True
@@ -147,6 +149,16 @@ def compute(repo=None, lanes=None, data_path=None, save_path=None, data=None, fo
     return r, data
 
 
+def models_section(r, data, routing):
+    issues = {i["number"]: i for i in data["issues"]}
+    hints = ["", "## Routed model per next item", ""]
+    for a in r["assignments"]:
+        if a["id"]:
+            n = r["nodes"][a["id"]]
+            hints.append(f"- lane {a['lane']}: {a['id']} · {model_hint(n, issues.get(n['issue']), routing)}")
+    return "\n".join(hints) + "\n"
+
+
 def main():
     repo = arg("--repo")
     sd = state_dir(repo)
@@ -157,13 +169,7 @@ def main():
     if "--models" in sys.argv:
         routing = load_json(os.path.join(sd, "routing.json"))
         if routing:
-            issues = {i["number"]: i for i in data["issues"]}
-            hints = ["", "## Routed model per next item", ""]
-            for a in r["assignments"]:
-                if a["id"]:
-                    n = r["nodes"][a["id"]]
-                    hints.append(f"- lane {a['lane']}: {a['id']} · {model_hint(n, issues.get(n['issue']), routing)}")
-            report += "\n".join(hints) + "\n"
+            report += models_section(r, data, routing)
     sys.stdout.write(report)
 
     if arg("--json"):

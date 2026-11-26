@@ -184,6 +184,16 @@ def pending(adrs, r):
     return sorted(rows, key=lambda x: (-x["blocks_total"], -x["blocks_direct"], x["adr"]))
 
 
+def render_pending(rows):
+    out = ["# Decisions to get made (Proposed ADRs, most blocked work first)", ""]
+    for x in rows:
+        out.append(f"- **{x['adr']}** {x['title']} · blocks {x['blocks_direct']} directly, {x['blocks_total']} in all"
+                   + (f" · {', '.join(x['tickets'][:8])}" if x["tickets"] else "") + f"\n  {x['raw']}")
+    if not rows:
+        out.append("_No Proposed ADRs._")
+    return "\n".join(out) + "\n"
+
+
 def for_ticket(gh, adrs, n):
     i = gh.issue(n)
     texts, chain = [i["body"]], [f"#{n}"]
@@ -287,13 +297,7 @@ def main(argv=None):
         import work_queue
         lanes = [l.strip() for l in (a.lanes or "").split(",") if l.strip()] or None
         r, _ = work_queue.compute(a.repo, lanes, data_path=a.data)
-        rows = pending(scan(d), r)
-        print("# Decisions to get made (Proposed ADRs, most blocked work first)\n")
-        for x in rows:
-            print(f"- **{x['adr']}** {x['title']} · blocks {x['blocks_direct']} directly, {x['blocks_total']} in all"
-                  + (f" · {', '.join(x['tickets'][:8])}" if x["tickets"] else "") + f"\n  {x['raw']}")
-        if not rows:
-            print("_No Proposed ADRs._")
+        sys.stdout.write(render_pending(pending(scan(d), r)))
     elif a.cmd == "for-ticket":
         out(for_ticket(github(), scan(d), a.issue))
     elif a.cmd == "check":

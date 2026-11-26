@@ -14,6 +14,7 @@ class FakeGitHub:
         self.prs = {}
         self._tags, self.releases, self.parents, self.ahead_by = {}, [], {}, 0
         self.ms_meta = {}
+        self.now = None  # when set, changes stamp issues' updated_at with it
         self._ids = itertools.count(1000)
         self.on_comment = None  # hook(n, comment) to simulate another session acting concurrently
 
@@ -42,13 +43,19 @@ class FakeGitHub:
         self._issues[n]["state_reason"] = reason
         return self.issue(n)
 
+    def _touch(self, n):
+        if self.now:
+            self._issues[n]["updated_at"] = self.now
+
     def add_labels(self, n, labels):
+        self._touch(n)
         for l in labels:
             if l not in self._issues[n]["labels"]:
                 self._issues[n]["labels"].append(l)
             self._labels.add(l)
 
     def remove_label(self, n, label):
+        self._touch(n)
         if label in self._issues[n]["labels"]:
             self._issues[n]["labels"].remove(label)
 
@@ -56,6 +63,7 @@ class FakeGitHub:
         return list(self._comments.get(n, []))
 
     def comment(self, n, body):
+        self._touch(n)
         c = {"id": next(self._ids), "created_at": _ts(), "body": body}
         self._comments.setdefault(n, []).append(c)
         if self.on_comment:

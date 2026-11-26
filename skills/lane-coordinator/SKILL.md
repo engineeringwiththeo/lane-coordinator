@@ -20,6 +20,8 @@ Find STATE with `python3 -I ${CLAUDE_SKILL_DIR}/scripts/state_dir.py`. If it pri
 
 ## How it fits together
 
+The plugin repo's `docs/USER_GUIDE.md` walks through a demo project with the real output of every command. Use it to show the owner what to expect.
+
 1. **The roadmap** (`docs/roadmap.md`, see `references/roadmap.md`) is the plan. It lists the milestones in delivery order, with due dates, goals and exit criteria, and the epics under each milestone. `RM sync` turns it into GitHub milestones and epic issues.
 2. **The tracker** breaks the epics into stories and tasks, which are GitHub issues with status labels, session claims, and `Depends on:` lines that can point to ADRs.
 3. **The planner** builds the dependency DAG from those issues and ranks ready work by roadmap milestone. Sessions claim from it.

@@ -212,6 +212,16 @@ class IssuesSource(unittest.TestCase):
         report = dag.render_report(r)
         self.assertIn("**#1** Auth schema · M · p0", report)
 
+    def test_epic_dependencies_reach_stories_and_tasks(self):
+        issues = [issue(10, "Epic: billing", ["type:epic", "epic:billing"], body="Depends on: ADR-0002"),
+                  issue(11, "Plans", ["type:story", "epic:billing"]),
+                  issue(12, "Plan UI", ["type:task", "epic:billing"], body="Parent: #11")]
+        r = dag.build_queue(dag.stories_from_issues(issues), issues, [], {"0002": "Proposed"})
+        for i in ("#11", "#12"):
+            self.assertEqual([u["dep"] for u in r["nodes"][i]["unmet"]], ["ADR-0002"], i)
+        r = dag.build_queue(dag.stories_from_issues(issues), issues, [], {"0002": "Accepted"})
+        self.assertTrue(r["nodes"]["#12"]["ready"])
+
     def test_merged_pr_unblocks(self):
         issues = self.data()
         r = dag.build_queue(dag.stories_from_issues(issues), issues, [pr(9, "feat: auth schema", "Closes #1")], {})

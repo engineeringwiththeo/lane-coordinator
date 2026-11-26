@@ -95,9 +95,9 @@ def ticket_rows(t, issues):
 
 
 def render_notes(version, rows, compare=None):
-    out = [f"## {version}", ""]
+    out = [f"## {version}"]
     if not rows:
-        out.append("_No tracked tickets._")
+        out += ["", "_No tracked tickets._"]
     ms = None
     for r in rows:
         if r["milestone"] != ms:

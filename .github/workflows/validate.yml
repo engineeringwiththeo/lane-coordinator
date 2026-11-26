@@ -11,6 +11,8 @@ jobs:
       - run: npm install -g @anthropic-ai/claude-code
       - run: claude plugin validate --strict .
       - run: python3 -I -m unittest discover -s tests -v
+      - name: User guide matches the real outputs
+        run: python3 -I examples/demo.py --check
       - name: Script smoke test
         run: |
           S=skills/lane-coordinator/scripts

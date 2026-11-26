@@ -210,6 +210,12 @@ class DagIntegration(unittest.TestCase):
         self.assertFalse(n["#5"]["ready"])
         self.assertIn("🔒 acme-03", dag.render_report(r))
 
+    def test_claimed_but_blocked_counts_as_blocked(self):
+        issues = [self.issue(1, ["type:story", "status:blocked", "acme-02"])]
+        n = dag.build_queue(dag.stories_from_issues(issues, self.CFG), issues, [], {}, cfg=self.CFG)["nodes"]["#1"]
+        self.assertEqual((n["status"], n["ready"], n["claimedBy"]), ("todo", False, ["acme-02"]))
+        self.assertEqual(n["unmet"][0]["dep"], "status:blocked")
+
     def test_story_with_tasks_is_a_container(self):
         issues = [self.issue(1, ["type:story"], "Depends on: #9"),
                   self.issue(2, ["type:task"], "Parent: #1"),

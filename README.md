@@ -13,6 +13,8 @@ A Claude Code plugin for running a repository as **one coordinator plus parallel
 - **Sprint tuning.** `sprint.py` suggests moving a ticket type down a tier when the cheaper model has a proven record (≥5 tickets, ≥80% first pass, no reverts, cheaper), and up a tier when it struggles. 10% of S and M tickets run one tier cheaper to gather that evidence.
 - **Review patterns.** Defects found twice go into a shared `review-patterns.md` that every worker brief links.
 
+**New here? Read the [user guide](docs/USER_GUIDE.md).** It follows a demo project through a coordinator's week with the real output of every command.
+
 ## Install
 
 Plugins installed at user scope are shared by the terminal CLI, the Claude Desktop app (Code tab) and the VS Code extension, so install it once from any of them:
@@ -99,7 +101,10 @@ Cost figures use Anthropic API list prices and are for comparing models, not for
 
 ```
 python3 -I -m unittest discover -s tests
+python3 -I examples/demo.py --check    # the user guide matches the real outputs
 ```
+
+After changing an output, run `python3 -I examples/demo.py` to regenerate `docs/USER_GUIDE.md`. Edit `docs/guide/USER_GUIDE.template.md`, never the generated file.
 
 ## Requirements
 

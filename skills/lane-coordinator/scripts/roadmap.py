@@ -250,8 +250,11 @@ def status(rm, r, data, adrs, prod_versions, ledger, today=None, lanes=None):
         decisions.sort(key=lambda d: -d["blocks"])
         chain = max((n["depth"] for n in nd), default=0)
         forecast = None
+        movable = any(n["ready"] or n["status"] == "in-progress" for n in nd)
         if not nd:
             state = "complete" if mine else "empty"
+        elif decisions and not movable:
+            state = "waiting on " + ", ".join(d["adr"] for d in decisions)
         elif days_per_ticket_per_lane:
             days = max(cumulative / per_week * 7, chain * days_per_ticket_per_lane)
             forecast = (today + timedelta(days=round(days))).isoformat()
@@ -265,7 +268,8 @@ def status(rm, r, data, adrs, prod_versions, ledger, today=None, lanes=None):
                     "ready": sum(n["ready"] for n in mine),
                     "blocked": sum(n["status"] == "todo" and not n["ready"] for n in mine),
                     "chain": chain, "in_production": len(in_prod), "on_staging": len(on_staging),
-                    "releases": sorted({release_of(n) for n in mine if release_of(n)}),
+                    "releases": [v if v in prod_v else f"{v} (staging)"
+                                 for v in sorted({release_of(n) for n in mine if release_of(n)})],
                     "epics": epics, "decisions": decisions, "top_blockers": top,
                     "forecast": forecast, "state": state})
     titles = [m["title"] for m in rm]
@@ -278,7 +282,7 @@ def status(rm, r, data, adrs, prod_versions, ledger, today=None, lanes=None):
 
 
 def render_status(s):
-    icon = {"complete": "✅", "on track": "🟢", "at risk": "🔴", "empty": "⚪"}
+    icon = {"complete": "✅", "on track": "🟢", "at risk": "🔴", "empty": "⚪", "waiting": "⛔"}
     out = ["# Roadmap status", "",
            f"_{s['today']} · throughput {s['throughput_per_week']} tickets/week over the last 4 weeks · "
            f"{s['lanes']} lanes_", "",
@@ -290,7 +294,7 @@ def render_status(s):
                                           f"{m['on_staging']} staging" if m["on_staging"] else ""] if x) or "—"
         out.append(f"| {m['milestone']} | {m['due'] or '—'} | {pct} | {m['in_progress']} | {m['ready']} | "
                    f"{m['blocked']} | {m['chain']} | {shipped} | {m['forecast'] or '—'} | "
-                   f"{icon.get(m['state'], '❔')} {m['state']} |")
+                   f"{next((v for k, v in icon.items() if m['state'].startswith(k)), '❔')} {m['state']} |")
     for m in s["milestones"]:
         out += ["", f"## {m['milestone']}" + (f" · due {m['due']}" if m["due"] else ""), ""]
         if m["goal"]:
