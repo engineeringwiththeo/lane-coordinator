@@ -1,0 +1,14 @@
+{
+  "name": "engineeringwiththeo",
+  "owner": { "name": "engineeringwiththeo", "url": "https://github.com/engineeringwiththeo" },
+  "metadata": { "description": "Claude Code plugins from engineeringwiththeo." },
+  "plugins": [
+    {
+      "name": "lane-coordinator",
+      "source": "./",
+      "description": "Opus coordinator + parallel worker lanes with model routing, gated merges and a metrics ledger.",
+      "category": "productivity",
+      "tags": ["agents", "multi-agent", "model-routing", "cost"]
+    }
+  ]
+}

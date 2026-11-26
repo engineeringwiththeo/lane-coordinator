@@ -1,0 +1,8 @@
+{
+  "integration_branch": "main",
+  "queue_cmd": null,
+  "ticket_id_pattern": "E\\d+-S\\d+",
+  "stack_order": ["sec", "db", "money", "api", "ui", "docs"],
+  "exploration_modulo": 10,
+  "window_days": 28
+}

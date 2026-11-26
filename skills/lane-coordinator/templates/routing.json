@@ -1,0 +1,23 @@
+{
+  "updated": "YYYY-MM-DD",
+  "roles": {
+    "coordinator": "claude-opus-5-5",
+    "planner": "claude-opus-5-5",
+    "designer": "claude-opus-5-5",
+    "reviewer": "claude-opus-5-5",
+    "ci_watcher": "claude-sonnet-5-5",
+    "merge": "coordinator (opus) only",
+    "helper": "claude-haiku-5-5"
+  },
+  "stack_floor": {
+    "sec": "claude-sonnet-5-5",
+    "db": "claude-sonnet-5-5",
+    "money": "claude-sonnet-5-5"
+  },
+  "size_default": {
+    "L": "claude-sonnet-5-5",
+    "M": "claude-haiku-5-5",
+    "S": "claude-haiku-5-5"
+  },
+  "overrides": {}
+}

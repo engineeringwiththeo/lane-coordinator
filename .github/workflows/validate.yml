@@ -1,0 +1,21 @@
+name: validate
+on: [push, pull_request]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install -g @anthropic-ai/claude-code
+      - run: claude plugin validate --strict .
+      - name: Script smoke test
+        run: |
+          S=skills/lane-coordinator/scripts
+          git config --global init.defaultBranch main
+          mkdir -p /tmp/demo && git -C /tmp/demo init -q
+          bash $S/init.sh /tmp/demo
+          python3 -I $S/route.py M:feature:db --repo /tmp/demo | grep -q 'model=claude-sonnet'
+          python3 -I $S/route.py S:bug:ui --issue 120 --repo /tmp/demo | grep -q 'explore=false'
+          python3 -I $S/sprint.py --repo /tmp/demo
